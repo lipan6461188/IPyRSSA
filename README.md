@@ -233,7 +233,29 @@ Prerequisites: pyliftover, pysam
 </tr>
 </table>
 
+<h3> Visual module </h3>
 
+`import Visual`
+
+Prerequisites: java, VARNA (http://varna.lri.fr)
+
+<table width="100%">
+<tr>
+	<th width="20%"> Function name </th>
+	<th> Usage </th>
+</tr>
+<tr>
+	<td> Plot_RNAStructure_Shape </td>
+	<td> Plot the RNA structure combine with SHAPE scores </td>
+</tr>
+<tr>
+	<td> Plot_RNAStructure_Base </td>
+	<td> Plot the RNA structure with different colors for ATCG </td>
+</tr>
+<tr>
+	<td> Plot_RNAStructure_highlight </td>
+	<td> Plot the RNA structure and highlight some regions </td>
+</table>
 
 
 
