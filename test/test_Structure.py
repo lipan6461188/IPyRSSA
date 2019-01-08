@@ -160,6 +160,17 @@ multi_seqs = General.load_fasta("multi_alignment.fa")
 aligned_seq_list = Structure.kalign_alignment(multi_seqs.values(), clean=True, verbose=False)
 
 #####################
+#  global_search(query_dict, ref_dict, thread_nums=1, min_identity=0.6, evalue=10, clean=True, verbose=False)
+#####################
+
+import General
+fasta = General.load_fasta("test_seq.fasta")
+
+query_dict = {'q1':"AAGTGGAGACAGAGCTTAAAATG"}
+ref_dict = fasta
+search_dict = global_search(query_dict, ref_dict, thread_nums=1, min_identity=0.6, evalue=10, clean=True, verbose=False)
+
+#####################
 #  align_find(aligned_seq, sub_seq)
 #####################
 

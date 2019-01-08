@@ -212,6 +212,10 @@ Prerequisites: pyliftover, pysam
 	<td> Multiple sequence alignment with kalign </td>
 </tr>
 <tr>
+	<td> global_search </td>
+	<td> Global align short sequences to multiple long sequences </td>
+</tr>
+<tr>
 	<td> align_find </td>
 	<td> Find the unaligned sequence region from aligned sequence </td>
 </tr>

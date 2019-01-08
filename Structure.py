@@ -1130,6 +1130,142 @@ def kalign_alignment(seq_list, clean=True, verbose=False):
     
     return aligned_list
 
+def __split_cigar_forGS(cigar_code):
+    """
+    cigar_code          -- Cigar code
+    
+    Split cigar for global_search
+    """
+    import re, sys
+    
+    cigar_list = re.split("(M|I|D)", cigar_code)[:-1]
+    
+    if len(cigar_list) % 2 != 0:
+        warning = "Error: %s is not a valid cigar code" % (cigar_code, )
+        print >>sys.stderr, warning
+        raise NameError(warning)
+    
+    cigar_pairs = []
+    i = 0
+    while i < len(cigar_list):
+        cigar_pairs.append( (int(cigar_list[i]),  cigar_list[i+1]) )
+        i += 2
+    
+    return cigar_pairs
+
+def __format_ref_forGS(full_ref_seq, position, cigar_pairs):
+    """
+    full_ref_seq        -- Raw reference sequence
+    position            -- Start position
+    cigar_pairs         -- Split cigar pairs
+    
+    Convert raw sequence to aligned sequence for reference sequence
+    """
+    formated_ref = ""
+    
+    current_pos = position
+    for Len,code in cigar_pairs:
+        if code == 'M':
+            formated_ref += full_ref_seq[ current_pos-1:current_pos+Len-1 ]
+            current_pos += Len
+        elif code == 'I':
+            formated_ref += full_ref_seq[ current_pos-1:current_pos+Len-1 ]
+            current_pos += Len
+        elif code == 'D':
+            formated_ref += "-"*Len
+        else:
+            print >>sys.stderr, "Error: Unexpected cigar code"
+            raise NameError("Error: Unexpected cigar code")
+    
+    return formated_ref
+
+def __format_query_forGS(full_query_seq, cigar_pairs):
+    """
+    full_query_seq      -- Raw query sequence
+    cigar_pairs         -- Split cigar pairs
+    
+    Convert raw sequence to aligned sequence for query sequence
+    """
+    formated_query = ""
+    
+    current_pos = 1
+    for Len,code in cigar_pairs:
+        if code == 'M':
+            formated_query += full_query_seq[ current_pos-1:current_pos+Len-1 ]
+            current_pos += Len
+        elif code == 'I':
+            formated_query += "-"*Len
+        elif code == 'D':
+            formated_query += full_query_seq[ current_pos-1:current_pos+Len-1 ]
+            current_pos += Len
+        else:
+            print >>sys.stderr, "Error: Unexpected cigar code"
+            raise NameError("Error: Unexpected cigar code")
+    
+    return formated_query
+
+def global_search(query_dict, ref_dict, thread_nums=1, min_identity=0.6, evalue=10, clean=True, verbose=False):
+    """
+    query_seq_dict              -- {seqID1:seq1, seqID2:seq2, seqID3:seq3,...}
+    ref_seq_dict                -- {seqID1:seq1, seqID2:seq2, seqID3:seq3,...}
+    min_identity                -- Minimum sequence identity
+    evalue                      -- Evalue for search
+    thread_nums                 -- Treads number
+    clean                       -- Delete all tmp files
+    verbose                     -- Print command
+    
+    Align short sequences to multiple long sequences.
+    Return { query_id => [ (aligned_query_seq, ref_id, aligned_ref_seq, map_pos), ... ] }
+    
+    Require glsearch36
+    """
+    import General
+    import random, os, sys
+    import shutil
+    
+    glsearch36 = General.require_exec("glsearch36")
+    
+    randID = random.randint(1000000,9000000)
+    ROOT = "/tmp/global_search_%s/" % (randID, )
+    os.mkdir(ROOT)
+    query_fa_file = ROOT + "query.fa"
+    ref_fa_file = ROOT + "reference.afa"
+    
+    General.write_fasta(query_dict, query_fa_file)
+    General.write_fasta(ref_dict, ref_fa_file)
+    
+    global_matches = {}
+    
+    ## -U mode permit U-C match
+    CMD = glsearch36 + " -3 -m 8CC -n %s %s -T %s -E %s | grep -v \"^#\" | cut -f 1,2,3,9,13" % (query_fa_file, ref_fa_file, thread_nums, evalue)
+    
+    if verbose:
+        print CMD
+    
+    for line in os.popen(CMD):
+        query_id, ref_id, identity, map_pos, cigar = line.rstrip("\n").split()
+        if float(identity) < min_identity*100: 
+            continue
+        
+        cigar_pairs = __split_cigar_forGS(cigar)
+        ref_seq = ref_dict[ref_id]
+        query_seq = query_dict[query_id]
+        
+        map_pos = int(map_pos)
+        
+        formated_ref = __format_ref_forGS(ref_seq, map_pos, cigar_pairs)
+        formated_query = __format_query_forGS(query_seq, cigar_pairs)
+        
+        try:
+            global_matches[query_id].append( [formated_query, ref_id, formated_ref, map_pos] )
+        except KeyError:
+            global_matches[query_id] =  [ [formated_query, ref_id, formated_ref, map_pos] ]
+    
+    if clean:
+        shutil.rmtree(ROOT)
+    
+    return global_matches
+
 def align_find(aligned_seq, sub_seq):
     """
     aligned_seq             -- Aligned sequence with "-"
