@@ -771,6 +771,7 @@ def calcSHAPEStructureScore(dot, shape_list, stem, params={}, report=False):
     'flanking_punish': 2,
     'loop_cutoff': 0.7, # higher, stricter
     'loop_bonus': 2,
+    'loop_max_cutoff': 0.4, # higher, stricter
     'bulge_cutoff': 0.6, # higher, stricter
     'bulge_bonus_factor': 2,
     'interloop_cutoff': 0.6, # higher, stricter
