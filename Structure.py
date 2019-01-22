@@ -789,7 +789,7 @@ def calcSHAPEStructureScore(dot, shape_list, stem, params={}, report=False):
     
     stem_score = 0
     stem_base = 0
-    stem_punish = 0
+    stem_penalty = 0
     for fixStem in fixed_stems:
         sub_ls,sub_le,sub_rs,sub_re = fixStem
         assert sub_le-sub_ls == sub_re-sub_rs
@@ -810,14 +810,14 @@ def calcSHAPEStructureScore(dot, shape_list, stem, params={}, report=False):
             inter.sort()
             ave_med = (1-numpy.mean(inter[-2:]))*0.6 + (1-numpy.mean(inter))*0.4
             if numpy.mean(inter[-2:]) > Params['stem_inter_cutoff']:
-                stem_punish += Params['inter_pinish']
+                stem_penalty += Params['inter_pinish']
         
         flank = [ shape_list[sub_ls-1], shape_list[sub_le-1], shape_list[sub_rs-1], shape_list[sub_re-1] ]
         flank = [ float(it) for it in flank ]
         flank.sort()
         ave_flank = 1-numpy.mean(flank)
         if numpy.mean(flank[-2:]) > Params['stem_flanking_cutoff']:
-            stem_punish += Params['flanking_punish']
+            stem_penalty += Params['flanking_punish']
         
         stem_score += ave_med*(stem_len-2)*2 + ave_flank * 4
         stem_base += stem_len*2
@@ -829,6 +829,7 @@ def calcSHAPEStructureScore(dot, shape_list, stem, params={}, report=False):
     loop_score = 0
     loop_base = 0
     loop_bonus = 0
+    loop_penalty = 0
     
     loop_shape = shape_list[le:rs-1]
     loop_shape = [ float(it) for it in loop_shape ]
@@ -838,6 +839,8 @@ def calcSHAPEStructureScore(dot, shape_list, stem, params={}, report=False):
     loop_score = ave_loop * loop_base
     if numpy.mean(loop_shape[-2:]) > Params['loop_cutoff']:
         loop_bonus = Params['loop_bonus']
+    if loop_shape[-1] < Params['loop_max_cutoff']:
+        loop_penalty = (1-loop_shape[-1]) * len(loop_shape)
     
     ##########
     ##  Bulge
@@ -889,14 +892,14 @@ def calcSHAPEStructureScore(dot, shape_list, stem, params={}, report=False):
         intLoop_base += len(medium)
     
     stem_len = re-ls+1
-    final_score = (stem_score-stem_punish) + (loop_score+loop_bonus) + (bulge_score+bulge_bonus) + (intLoop_score+intLoop_bonus)
+    final_score = (stem_score-stem_penalty) + (loop_score+loop_bonus-loop_penalty) + (bulge_score+bulge_bonus) + (intLoop_score+intLoop_bonus)
     final_score /= stem_len
     
     assert stem_len == stem_base + loop_base + bulge_base + intLoop_base
     
     if report:
-        print "stem_score: %.3f; stem_punish: %3.f; stem_base: %s" % (stem_score, stem_punish, stem_base)
-        print "loop_score: %.3f; loop_bonus: %3.f; loop_base: %s" % (loop_score, loop_bonus, loop_base)
+        print "stem_score: %.3f; stem_penalty: %3.f; stem_base: %s" % (stem_score, stem_penalty, stem_base)
+        print "loop_score: %.3f; loop_bonus: %3.f; loop_penalty: %3.f; loop_base: %s" % (loop_score, loop_bonus, loop_penalty, loop_base)
         print "bulge_score: %.3f; bulge_bonus: %3.f; bulge_base: %s" % (bulge_score, bulge_bonus, bulge_base)
         print "intLoop_score: %.3f; intLoop_bonus: %3.f; intLoop_base: %s" % (intLoop_score, intLoop_bonus, intLoop_base)
     
@@ -911,6 +914,8 @@ def sliding_score_stemloop_noshape(sequence, max_loop_len=8, max_stem_gap=3, min
     wStep               -- Window step
     
     Find stem loops in sequence with a sliding window
+    
+    Return [ ((ls,le,rs,re), stemloop_dot), ... ]
     
     Require Fold or Fold-smp
     """
@@ -957,7 +962,7 @@ def sliding_score_stemloop_noshape(sequence, max_loop_len=8, max_stem_gap=3, min
     fine_stemloops.sort(key=lambda x: x[0][0], reverse=False)
     return fine_stemloops
 
-def sliding_score_stemloop_shape(sequence, shape_list, max_loop_len=8, max_stem_gap=3, min_stem_len=5, start=0, end=None, wSize=200, wStep=100):
+def sliding_score_stemloop_shape(sequence, shape_list, max_loop_len=8, max_stem_gap=3, min_stem_len=5, start=0, end=None, wSize=200, wStep=100, skip_noshape=True):
     """
     sequence            -- Raw sequence
     shape_list          -- A list of SHAPE values
@@ -965,6 +970,7 @@ def sliding_score_stemloop_shape(sequence, shape_list, max_loop_len=8, max_stem_
     end                 -- End site
     wSize               -- Window size
     wStep               -- Window step
+    skip_noshape        -- Skip those regions without SHAPE values to save time
     
     Find stem loops in sequence with a sliding window
     
@@ -982,6 +988,10 @@ def sliding_score_stemloop_shape(sequence, shape_list, max_loop_len=8, max_stem_
     while start+wSize/2<end:
         curSeq = sequence[start:start+wSize]
         curShape = shape_list[start:start+wSize]
+        if skip_noshape and 1.0*(len(curShape)-curShape.count('NULL'))/len(curShape) < 0.3:
+            start += wStep
+            continue
+        
         curSS = predict_structure(curSeq, curShape, verbose=False)
         
         stem_loops = find_stem_loop(curSS, max_loop_len=max_loop_len, max_stem_gap=max_stem_gap, min_stem_len=min_stem_len)
@@ -1018,7 +1028,7 @@ def sliding_score_stemloop_shape(sequence, shape_list, max_loop_len=8, max_stem_
     stemloop_score.sort(key=lambda x: x[2], reverse=True)
     return stemloop_score
 
-def sliding_score_stemloop(sequence, shape_list=None, max_loop_len=8, max_stem_gap=3, min_stem_len=5, start=0, end=None, wSize=200, wStep=100):
+def sliding_score_stemloop(sequence, shape_list=None, max_loop_len=8, max_stem_gap=3, min_stem_len=5, start=0, end=None, wSize=200, wStep=100, skip_noshape=True):
     """
     sequence            -- Raw sequence
     shape_list          -- A list of SHAPE values
@@ -1026,13 +1036,15 @@ def sliding_score_stemloop(sequence, shape_list=None, max_loop_len=8, max_stem_g
     end                 -- End site
     wSize               -- Window size
     wStep               -- Window step
+    skip_noshape        -- Skip those regions without SHAPE values to save time
+                           Only useful when shape_list is provided 
     
     Find stem loops in sequence with a sliding window
     
     Require Fold or Fold-smp
     """
     if shape_list:
-        return sliding_score_stemloop_shape(sequence, shape_list=shape_list, max_loop_len=max_loop_len, max_stem_gap=max_stem_gap, min_stem_len=min_stem_len, start=start, end=end, wSize=wSize, wStep=wStep)
+        return sliding_score_stemloop_shape(sequence, shape_list=shape_list, max_loop_len=max_loop_len, max_stem_gap=max_stem_gap, min_stem_len=min_stem_len, start=start, end=end, wSize=wSize, wStep=wStep, skip_noshape=skip_noshape)
     else:
         return sliding_score_stemloop_noshape(sequence, max_loop_len=max_loop_len, max_stem_gap=max_stem_gap, min_stem_len=min_stem_len, start=start, end=end, wSize=wSize, wStep=wStep)
 

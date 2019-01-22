@@ -2,6 +2,10 @@
 
 IPyRSSA (<b>I</b>ntegrative <b>Py</b>thon library for <b>R</b>NA <b>S</b>econdary <b>S</b>tructure <b>A</b>nalysis) is a set of Python library to analyze RNA secondary structure and SHAPE data.
 
+#### Update your local directory
+
+`git pull origin `
+
 <h3> General module </h3>
 
 `import General`
