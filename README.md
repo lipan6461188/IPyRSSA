@@ -51,6 +51,14 @@ IPyRSSA (<b>I</b>ntegrative <b>Py</b>thon library for <b>R</b>NA <b>S</b>econdar
 	<td> calc_shape_gini </td>
 	<td> Calculate SHAPE gini index </td>
 </tr>
+<tr>
+	<td> calc_shape_structure_ROC </td>
+	<td> Calculate the ROC points structure and shape scores </td>
+</tr>
+<tr>
+	<td> calc_AUC </td>
+	<td> Calculate AUC with ROC points </td>
+</tr>
 </table>
 
 <h3> Colors module </h3>
@@ -73,6 +81,14 @@ IPyRSSA (<b>I</b>ntegrative <b>Py</b>thon library for <b>R</b>NA <b>S</b>econdar
 <tr>
 	<td> color_Seq_SHAPE </td>
 	<td> Convert sequence to colorful sequence </td>
+</tr>
+<tr>
+	<td> browse_shape </td>
+	<td> Print and compare single/multiple shape scores </td>
+</tr>
+<tr>
+	<td> browse_multi_shape </td>
+	<td> Align multiple sequences and print shape scores </td>
 </tr>
 </table>
 

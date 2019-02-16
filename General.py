@@ -224,6 +224,71 @@ def require_exec(exec_command, warning="", exception=True):
     
     return exec_path
 
+def calc_shape_structure_positive_rate(dot, shape_list, cutoff):
+    """
+    dot                 -- Dotbracket structure
+    shape_list          -- A list of SHAPE scores
+    cutoff              -- A cutoff to discriminate single-stranded bases and double-stranded bases
+    
+    Calculate the positive rate between shape scores and secondary structure
+    
+    Return [true postive rate, false positive rate]
+    """
+    
+    Pos_Num = 0
+    True_Pos = 0
+    False_Pos = 0
+    Neg_Num = 0
+    for idx, code in enumerate(list(dot)):
+        if shape_list[idx] != 'NULL':
+            if code != ".":
+                Pos_Num += 1
+                if float(shape_list[idx]) <= cutoff:
+                    True_Pos += 1
+                else:
+                    pass
+            else:
+                Neg_Num += 1
+                if float(shape_list[idx]) <= cutoff:
+                    False_Pos += 1
+                else:
+                    pass
+    
+    return 1.0*True_Pos/Pos_Num, 1.0*False_Pos/Neg_Num
 
+def calc_shape_structure_ROC(dot, shape_list, step=0.01):
+    """
+    dot                 -- Dotbracket structure
+    shape_list          -- A list of SHAPE scores
+    step                -- Cutoff step
+    
+    Calculate the ROC points structure and shape scores
+    
+    Return [point1, point2, point3,...]
+    """
+    
+    assert(len(dot)==len(shape_list))
+    
+    ROC = []
+    cutoff = -step
+    while cutoff < 1.0 + step:
+        TPR, FPR = calc_shape_structure_positive_rate(dot, shape_list, cutoff)
+        ROC.append( (FPR, TPR) )
+        cutoff += step
+    
+    return ROC
+
+def calc_AUC(ROC):
+    """
+    ROC                 -- ROC point list
+    
+    Return AUC
+    """
+    import sklearn
+    import sklearn.metrics
+    
+    x = [it[0] for it in ROC]
+    y = [it[1] for it in ROC]
+    return sklearn.metrics.auc(x, y, reorder=False)
 
 

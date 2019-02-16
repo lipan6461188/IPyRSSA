@@ -131,6 +131,131 @@ def color_Seq_SHAPE(sequence, shape_list, cutoff=[0.3, 0.5, 0.7]):
     
     return color_seq
 
+def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_list=[]):
+    """
+    sequence                -- Sequence
+    shape_list_list         -- [ [shape_list1, shape_list2, shape_list3, ...], [], []... ]
+    linelen                 -- Number of bases for each line
+    dot                     -- Dot structure
+    shape_title_list        -- Title for each shape list
+    
+    Print/compare shape scores in screen
+    """
+    
+    import General
+    
+    ### Check the correctness of parameters
+    for shape_list in shape_list_list:
+        assert len(sequence) == len(shape_list)
+    if shape_title_list:
+        assert len(shape_list_list) == len(shape_title_list)
+    else:
+        shape_title_list = [ "" ] * len(shape_list_list)
+    if dot:
+        assert len(sequence) == len(dot)
+    
+    ### Print lengend
+    red_legend = format("  ", bc="red")+" >0.7 "
+    green_legend = format("  ", bc="green")+" 0.5-0.7 "
+    cyan_legend = format("  ", bc="cyan")+" 0.3-0.5 "
+    blue_legend = format("  ", bc="blue")+" <0.3 "
+    null_legend = format("  ", bc="lightgray")+" NULL "
+    print "\n#### Legend"
+    print " "*5 + blue_legend + green_legend + cyan_legend + red_legend + null_legend + "\n"
+    
+    ### Calculate AUC
+    if dot:
+        print "#### AUC"
+        for head, shape_list in zip(shape_title_list, shape_list_list):
+            roc = General.calc_shape_structure_ROC(dot, shape_list, step=0.01)
+            auc = round(General.calc_AUC(roc), 3)
+            print "     "+head+"\t"+str(auc)
+        print ""
+    
+    ### Estimate min head length
+    max_title_len = max([len(title) for title in shape_title_list])
+    max_seqnum_len = 2*len(str(len(sequence)))+1
+    min_head_len = max(max_seqnum_len, max_title_len) + 2
+    
+    ### Print sequence, structure and shape
+    i = 0
+    while i<len(sequence):
+        end = min(i+linelen, len(sequence))
+        head = "%s-%s" % (i+1, end)
+        head += " "*(min_head_len-len(head))
+        print head+sequence[i:end]
+        if dot:
+            print " "*min_head_len+dot[i:end]
+        for head, shape_list in zip(shape_title_list, shape_list_list):
+            head += " "*(min_head_len-len(head))
+            print head+color_SHAPE(shape_list[i:end], cutoff=[0.3, 0.5, 0.7])
+        print ""
+        i += linelen
 
+def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shape_title_list=[]):
+    """
+    sequence_list           -- Sequence list
+    shape_list_list         -- [ [shape_list1, shape_list2, shape_list3, ...], [], []... ]
+    linelen                 -- Number of bases for each line
+    dot                     -- Dot structure of the first sequence
+    shape_title_list        -- Title for each sequence/shape
+    
+    Align and print/compare shape scores in screen
+    """
+    
+    import General, Structure
+    
+    ### Check the correctness of parameters
+    assert len(sequence_list) == len(shape_list_list)
+    if shape_title_list:
+        assert len(sequence_list) == len(shape_title_list)
+    else:
+        shape_title_list = [ "" ] * len(shape_list_list)
+    for sequence, shape_list in zip(sequence_list, shape_list_list):
+        assert len(sequence) == len(shape_list)
+    if dot:
+        assert len(sequence_list[0]) == len(dot)
+    
+    aligned_seq_list = Structure.multi_alignment(sequence_list, clean=True, verbose=False)
+    aligned_shape_list = [ Structure.shape_to_alignSHAPE(raw_shape,aligned_seq) for raw_shape,aligned_seq in zip(shape_list_list, aligned_seq_list) ]
+    aligned_dot = ""
+    if dot:
+        aligned_dot = Structure.dot_to_alignDot(dot, aligned_seq_list[0])
+    
+    ### Estimate min head length
+    max_title_len = max([len(title) for title in shape_title_list])
+    max_seqnum_len = max( [2*len(str(len(raw_seq)))+1 for raw_seq in sequence_list] )
+    min_head_len = max(max_seqnum_len, max_title_len) + 2
+    
+    ### Print lengend
+    red_legend = format("  ", bc="red")+" >0.7 "
+    green_legend = format("  ", bc="green")+" 0.5-0.7 "
+    cyan_legend = format("  ", bc="cyan")+" 0.3-0.5 "
+    blue_legend = format("  ", bc="blue")+" <0.3 "
+    null_legend = format("  ", bc="lightgray")+" NULL "
+    print "\n#### Legend"
+    print " "*5 + blue_legend + green_legend + cyan_legend + red_legend + null_legend + "\n"
+    
+    ### Print sequence, structure and shape
+    i = 0
+    aligned_seq_len = len(aligned_seq_list[0])
+    while i<aligned_seq_len:
+        end = min(i+linelen, aligned_seq_len)
+        index = 0
+        for title,aligned_seq,aligned_shape in zip(shape_title_list,aligned_seq_list,aligned_shape_list):
+            raw_start = len(aligned_seq[:i].replace("-",""))+1
+            raw_end = len(aligned_seq[:end].replace("-",""))
+            head = "%s-%s" % (raw_start, raw_end)
+            head += " "*(min_head_len-len(head))
+            print head+aligned_seq[i:end]
+            if index == 0:
+                if aligned_dot:
+                    print " "*min_head_len+aligned_dot[i:end]
+            head = title
+            head += " "*(min_head_len-len(head))
+            print head+color_SHAPE(aligned_shape[i:end], cutoff=[0.3, 0.5, 0.7])
+            index += 1
+        i += linelen
+        print ""
 
 
