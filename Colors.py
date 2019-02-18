@@ -163,7 +163,7 @@ def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_lis
     blue_legend = format("  ", bc="blue")+" <0.3 "
     null_legend = format("  ", bc="lightgray")+" NULL "
     print >>OUT, "\n#### Legend"
-    print >>OUT, " "*5 + blue_legend + green_legend + cyan_legend + red_legend + null_legend + "\n"
+    print >>OUT, " "*5 + red_legend + green_legend + cyan_legend + blue_legend + null_legend + "\n"
     
     ### Calculate AUC
     if dot:
@@ -236,7 +236,7 @@ def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shap
     blue_legend = format("  ", bc="blue")+" <0.3 "
     null_legend = format("  ", bc="lightgray")+" NULL "
     print >>OUT, "\n#### Legend"
-    print >>OUT, " "*5 + blue_legend + green_legend + cyan_legend + red_legend + null_legend + "\n"
+    print >>OUT, " "*5 + red_legend + green_legend + cyan_legend + blue_legend + null_legend + "\n"
     
     ### Print sequence, structure and shape
     i = 0
