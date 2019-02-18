@@ -84,11 +84,11 @@ IPyRSSA (<b>I</b>ntegrative <b>Py</b>thon library for <b>R</b>NA <b>S</b>econdar
 </tr>
 <tr>
 	<td> browse_shape </td>
-	<td> Print and compare single/multiple shape scores </td>
+	<td> Print and compare single/multiple shape scores <a href="examples/visual_icSHAPE_in_terminal">example</a> </td>
 </tr>
 <tr>
 	<td> browse_multi_shape </td>
-	<td> Align multiple sequences and print shape scores </td>
+	<td> Align multiple sequences and print shape scores <a href="examples/visual_icSHAPE_in_terminal">example</a> </td>
 </tr>
 </table>
 

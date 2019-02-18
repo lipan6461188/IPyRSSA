@@ -50,6 +50,8 @@ formatting = {
     'reverse': 7
 }
 
+import sys
+
 def format(text, fc='red', bc='default', ft='normal'):
     """
     fc                      -- font color
@@ -131,7 +133,7 @@ def color_Seq_SHAPE(sequence, shape_list, cutoff=[0.3, 0.5, 0.7]):
     
     return color_seq
 
-def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_list=[]):
+def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_list=[], OUT=sys.stdout):
     """
     sequence                -- Sequence
     shape_list_list         -- [ [shape_list1, shape_list2, shape_list3, ...], [], []... ]
@@ -160,17 +162,17 @@ def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_lis
     cyan_legend = format("  ", bc="cyan")+" 0.3-0.5 "
     blue_legend = format("  ", bc="blue")+" <0.3 "
     null_legend = format("  ", bc="lightgray")+" NULL "
-    print "\n#### Legend"
-    print " "*5 + blue_legend + green_legend + cyan_legend + red_legend + null_legend + "\n"
+    print >>OUT, "\n#### Legend"
+    print >>OUT, " "*5 + blue_legend + green_legend + cyan_legend + red_legend + null_legend + "\n"
     
     ### Calculate AUC
     if dot:
-        print "#### AUC"
+        print >>OUT, "#### AUC"
         for head, shape_list in zip(shape_title_list, shape_list_list):
             roc = General.calc_shape_structure_ROC(dot, shape_list, step=0.01)
             auc = round(General.calc_AUC(roc), 3)
-            print "     "+head+"\t"+str(auc)
-        print ""
+            print >>OUT, "     "+head+"\t"+str(auc)
+        print >>OUT, ""
     
     ### Estimate min head length
     max_title_len = max([len(title) for title in shape_title_list])
@@ -183,16 +185,16 @@ def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_lis
         end = min(i+linelen, len(sequence))
         head = "%s-%s" % (i+1, end)
         head += " "*(min_head_len-len(head))
-        print head+sequence[i:end]
+        print >>OUT, head+sequence[i:end]
         if dot:
-            print " "*min_head_len+dot[i:end]
+            print >>OUT, " "*min_head_len+dot[i:end]
         for head, shape_list in zip(shape_title_list, shape_list_list):
             head += " "*(min_head_len-len(head))
-            print head+color_SHAPE(shape_list[i:end], cutoff=[0.3, 0.5, 0.7])
-        print ""
+            print >>OUT, head+color_SHAPE(shape_list[i:end], cutoff=[0.3, 0.5, 0.7])
+        print >>OUT, ""
         i += linelen
 
-def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shape_title_list=[]):
+def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shape_title_list=[], OUT=sys.stdout):
     """
     sequence_list           -- Sequence list
     shape_list_list         -- [ [shape_list1, shape_list2, shape_list3, ...], [], []... ]
@@ -233,8 +235,8 @@ def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shap
     cyan_legend = format("  ", bc="cyan")+" 0.3-0.5 "
     blue_legend = format("  ", bc="blue")+" <0.3 "
     null_legend = format("  ", bc="lightgray")+" NULL "
-    print "\n#### Legend"
-    print " "*5 + blue_legend + green_legend + cyan_legend + red_legend + null_legend + "\n"
+    print >>OUT, "\n#### Legend"
+    print >>OUT, " "*5 + blue_legend + green_legend + cyan_legend + red_legend + null_legend + "\n"
     
     ### Print sequence, structure and shape
     i = 0
@@ -247,15 +249,15 @@ def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shap
             raw_end = len(aligned_seq[:end].replace("-",""))
             head = "%s-%s" % (raw_start, raw_end)
             head += " "*(min_head_len-len(head))
-            print head+aligned_seq[i:end]
+            print >>OUT, head+aligned_seq[i:end]
             if index == 0:
                 if aligned_dot:
-                    print " "*min_head_len+aligned_dot[i:end]
+                    print >>OUT, " "*min_head_len+aligned_dot[i:end]
             head = title
             head += " "*(min_head_len-len(head))
-            print head+color_SHAPE(aligned_shape[i:end], cutoff=[0.3, 0.5, 0.7])
+            print >>OUT, head+color_SHAPE(aligned_shape[i:end], cutoff=[0.3, 0.5, 0.7])
             index += 1
         i += linelen
-        print ""
+        print >>OUT, ""
 
 
