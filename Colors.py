@@ -133,13 +133,14 @@ def color_Seq_SHAPE(sequence, shape_list, cutoff=[0.3, 0.5, 0.7]):
     
     return color_seq
 
-def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_list=[], OUT=sys.stdout):
+def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_list=[], colorcutoff=[0.3, 0.5, 0.7], OUT=sys.stdout):
     """
     sequence                -- Sequence
     shape_list_list         -- [ [shape_list1, shape_list2, shape_list3, ...], [], []... ]
     linelen                 -- Number of bases for each line
     dot                     -- Dot structure
     shape_title_list        -- Title for each shape list
+    colorcutoff             -- Cutoff for colorblock
     
     Print/compare shape scores in screen
     """
@@ -157,10 +158,10 @@ def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_lis
         assert len(sequence) == len(dot)
     
     ### Print lengend
-    red_legend = format("  ", bc="red")+" >0.7 "
-    green_legend = format("  ", bc="green")+" 0.5-0.7 "
-    cyan_legend = format("  ", bc="cyan")+" 0.3-0.5 "
-    blue_legend = format("  ", bc="blue")+" <0.3 "
+    red_legend = format("  ", bc="red")+" >%s " % (colorcutoff[2], )
+    green_legend = format("  ", bc="green")+" %s-%s " % (colorcutoff[1], colorcutoff[2])
+    cyan_legend = format("  ", bc="cyan")+" %s-%s " % (colorcutoff[0], colorcutoff[1])
+    blue_legend = format("  ", bc="blue")+" <%s " % (colorcutoff[0], )
     null_legend = format("  ", bc="lightgray")+" NULL "
     print >>OUT, "\n#### Legend"
     print >>OUT, " "*5 + red_legend + green_legend + cyan_legend + blue_legend + null_legend + "\n"
@@ -169,7 +170,7 @@ def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_lis
     if dot:
         print >>OUT, "#### AUC"
         for head, shape_list in zip(shape_title_list, shape_list_list):
-            roc = General.calc_shape_structure_ROC(dot, shape_list, step=0.01)
+            roc = General.calc_shape_structure_ROC(dot, shape_list, start=0.0, step=0.01, stop=1.0)
             auc = round(General.calc_AUC(roc), 3)
             print >>OUT, "     "+head+"\t"+str(auc)
         print >>OUT, ""
@@ -190,9 +191,10 @@ def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_lis
             print >>OUT, " "*min_head_len+dot[i:end]
         for head, shape_list in zip(shape_title_list, shape_list_list):
             head += " "*(min_head_len-len(head))
-            print >>OUT, head+color_SHAPE(shape_list[i:end], cutoff=[0.3, 0.5, 0.7])
+            print >>OUT, head+color_SHAPE(shape_list[i:end], cutoff=colorcutoff)
         print >>OUT, ""
         i += linelen
+
 
 def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shape_title_list=[], OUT=sys.stdout):
     """

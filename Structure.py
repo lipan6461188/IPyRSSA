@@ -533,22 +533,30 @@ def dot2ct(dot):
     Convert dotbracket structure to list
     ..((..))..  =>  [(3, 8), (4, 7)]
     """
-    stack = []
-    ct_list = []
     
-    for idx, symbol in enumerate(list(dot)):
-        if symbol in ('(', '<', '{', '['):
-            stack.append( idx+1 )
-        elif symbol in (')', '>', '}', ']'):
-            ct_list.append( (stack[-1], idx+1) )
-            stack.pop()
+    stack = []
+    ctList = []
+    
+    for idx,symbol in enumerate(dot):
+        if symbol in ('(', '[', '{', '<'):
+            stack.append( (idx+1, symbol) )
+        elif symbol == '.':
+            pass
+        else:
+            for i in range( len(stack)-1, -1, -1 ):
+                if stack[i][1]+symbol in ("()", "[]", "{}", "<>"):
+                    ctList.append( (stack[i][0], idx+1) )
+                    del stack[i]
+                    break
+                else:
+                    pass
     
     if len(stack) != 0:
         print >>sys.stderr, "Error: Bad dotbracket structure"
         raise NameError("Error: Bad dotbracket structure")
     
-    ct_list.sort()
-    return ct_list
+    ctList.sort()
+    return ctList
 
 def dot2bpmap(dot):
     """

@@ -256,7 +256,7 @@ def calc_shape_structure_positive_rate(dot, shape_list, cutoff):
     
     return 1.0*True_Pos/Pos_Num, 1.0*False_Pos/Neg_Num
 
-def calc_shape_structure_ROC(dot, shape_list, step=0.01):
+def calc_shape_structure_ROC(dot, shape_list, start=0.0, step=0.01, stop=1.0):
     """
     dot                 -- Dotbracket structure
     shape_list          -- A list of SHAPE scores
@@ -270,8 +270,8 @@ def calc_shape_structure_ROC(dot, shape_list, step=0.01):
     assert(len(dot)==len(shape_list))
     
     ROC = []
-    cutoff = -step
-    while cutoff < 1.0 + step:
+    cutoff = start-step
+    while cutoff < stop + step:
         TPR, FPR = calc_shape_structure_positive_rate(dot, shape_list, cutoff)
         ROC.append( (FPR, TPR) )
         cutoff += step
