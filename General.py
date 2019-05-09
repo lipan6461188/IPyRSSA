@@ -1,6 +1,6 @@
 #-*- coding:utf-8 -*-
 
-import sys, commands
+import sys
 
 def load_fasta(seqFn, rem_tVersion=False):
     """
@@ -30,7 +30,7 @@ def write_fasta(Fasta, seqFn):
     
     OUT = open(seqFn, 'w')
     for trans_id in Fasta:
-        print >>OUT, '>%s\n%s' % (trans_id, flat_seq(Fasta[trans_id]))
+        OUT.writelines('>%s\n%s\n' % (trans_id, flat_seq(Fasta[trans_id])))
     
     OUT.close()
 
@@ -56,10 +56,22 @@ def load_dot(dotFn, rem_tVersion=False):
     ## check
     for tid in Dot:
         if len(Dot[tid]) != 2:
-            print >>sys.stderr, "Format Error: "+cur_tid
+            sys.stderr.writelines("Format Error: "+cur_tid+"\n")
             raise NameError("Format Error: "+cur_tid)
     
     return Dot
+
+def write_dot(dot, dotFn):
+    """
+    dot                 -- A dictionary { tid1: (seq, dot), tid2: (seq, dot), ... }
+    dotFn               -- A dot file
+    """
+    
+    OUT = open(dotFn, 'w')
+    for trans_id in dot:
+        OUT.writelines('>%s\n%s\n%s\n' % (trans_id, dot[trans_id][0], dot[trans_id][1]))
+    
+    OUT.close()
 
 def load_shape(ShapeFn, rem_tVersion=False, min_RPKM=None):
     """
@@ -80,6 +92,84 @@ def load_shape(ShapeFn, rem_tVersion=False, min_RPKM=None):
         SHAPE[ transID ] = data[3:]
     
     return SHAPE
+
+def load_SHAPEMap(shapeFn, relocate=False, loadAll=False):
+    """
+    Read SHAPE Map file produced by shapemapper2
+    
+    relocate            -- Locate the column index or use default output from shapemapper
+    loadAll             -- Load all informative columns, or only load sequence and shape
+    
+    Return { key => list/sequence }
+       keys:
+        seq                 -- Sequence
+        mod_list            -- A list of number of mutation in treated sample
+        mod_cov_list        -- A list of coverage of mutation in treated sample
+        dmso_list           -- A list of number of mutation in untreated sample
+        dmso_cov_list       -- A list of coverage of mutation in untreated sample
+        hq_pro_list         -- A list of raw shape reactivity
+        hq_std_list         -- A list of stderr of raw shape reactivity
+        shape_pro_list      -- A list of normalized shape reactivity
+        shape_std_list      -- A list of stderr of normalized shape reactivity
+    """
+    
+    def fmtN(raw):
+        return "NULL" if raw=="nan" else float(raw)
+    
+    IN = open(shapeFn)
+    header = IN.readline()
+    
+    if relocate:
+        headers = header.strip().split()
+        seq_col_idx    = headers.index("Sequence")
+        tr_mod_col_idx = headers.index("Modified_mutations")
+        tr_cov_col_idx = headers.index("Modified_effective_depth")
+        co_mod_col_idx = headers.index("Untreated_mutations")
+        co_cov_col_idx = headers.index("Untreated_effective_depth")
+        hq_pro_col_idx = headers.index("HQ_profile")
+        hq_std_col_idx = headers.index("HQ_stderr")
+        no_pro_col_idx = headers.index("Norm_profile")
+        no_std_col_idx = headers.index("Norm_stderr")
+    else:
+        seq_col_idx = 1
+        tr_mod_col_idx = 2
+        tr_cov_col_idx = 4
+        co_mod_col_idx = 9
+        co_cov_col_idx = 11
+        hq_pro_col_idx = 25
+        hq_std_col_idx = 26
+        no_pro_col_idx = 27
+        no_std_col_idx = 28
+    
+    sequence = ""
+    mod_list = []
+    mod_cov_list = []
+    dmso_list = []
+    dmso_cov_list = []
+    hq_pro_list = []
+    hq_std_list = []
+    shape_pro_list = []
+    shape_std_list = []
+    
+    for line in IN:
+        data = line.strip().split()
+        
+        sequence += data[seq_col_idx]
+        shape_pro_list.append( fmtN(data[no_pro_col_idx]) )
+        
+        if loadAll:
+            mod_list.append( int(data[tr_mod_col_idx]) )
+            mod_cov_list.append( int(data[tr_cov_col_idx]) )
+            dmso_list.append( int(data[co_mod_col_idx]) )
+            dmso_cov_list.append( int(data[co_cov_col_idx]) )
+            hq_pro_list.append( fmtN(data[hq_pro_col_idx]) )
+            hq_std_list.append( fmtN(data[hq_std_col_idx]) )
+            shape_std_list.append( fmtN(data[no_std_col_idx]) )
+    
+    shapemap = { "seq":sequence, "mod_list":mod_list, "mod_cov_list":mod_cov_list, "dmso_list":dmso_list, "dmso_cov_list":dmso_cov_list, 
+        "hq_pro_list":hq_pro_list, "hq_std_list":hq_std_list, "shape_pro_list":shape_pro_list, "shape_std_list":shape_std_list }
+    
+    return shapemap
 
 def init_pd_rect(rowNum, colNum, rowNames=[], colNames=[], init_value=None):
     """
@@ -219,7 +309,7 @@ def require_exec(exec_command, warning="", exception=True):
         warning = "Error: %s not found in PATH" % (exec_command, )
     
     if not exec_path and exception:
-        print >>sys.stderr, warning
+        sys.stderr.writelines(warning+"\n")
         raise NameError(warning)
     
     return exec_path
@@ -290,5 +380,34 @@ def calc_AUC(ROC):
     x = [it[0] for it in ROC]
     y = [it[1] for it in ROC]
     return sklearn.metrics.auc(x, y, reorder=False)
+
+def calc_AUC_v2(dot, shape_list):
+    """
+    dot                 -- Dotbracket structure
+    shape_list          -- A list of SHAPE scores
+    
+    Calculate the AUC between structure and shape
+    
+    Return [point1, point2, point3,...]
+    """
+    from sklearn.metrics import roc_curve, auc
+    import numpy as np
+    
+    assert len(dot) == len(shape_list)
+    assert len(dot) > 20
+    
+    dot_array = np.array(list(dot))
+    shape_array = np.array(shape_list, dtype=str)
+    
+    dot_array = dot_array[shape_array!='NULL']
+    shape_array = shape_array[shape_array!='NULL']
+    shape_array = shape_array.astype(float)
+    
+    unpaired = (dot_array=='.')
+    
+    FPR, TPR, _ = roc_curve(unpaired, shape_array)
+    AUC = auc(FPR, TPR)
+    
+    return AUC
 
 

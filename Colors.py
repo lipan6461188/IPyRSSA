@@ -50,6 +50,32 @@ formatting = {
     'reverse': 7
 }
 
+RGB = {
+    'red'    : "#f44336",
+    'pink'   : "#e91e63",
+    'purple' : "#9c27b0",
+    'indigo' : "#3f51b5",
+    'blue'   : "#2196f3",
+    'green'  : "#4caf50",
+    'teal'   : "#009688",
+    'brown'  : "#795548",
+    'aqua'   : "#00ffff",
+    'cyan'   : "#00bcd4",
+    'lime'   : "#cddc39",
+    'orange' : "#ff9800",
+    'amber'  : "#ffc107",
+    'khaki'  : "#f0e68c",
+
+    'deep_purple' : "#673ab7",
+    'pale_yellow' : "#ffffcc",
+    'pale_red'    : "#ffdddd",
+    'pale_blue'   : "#ddffff",
+    'pale_green'  : "#ddffdd",
+    'light_blue'  : "#87ceeb",
+    'light_green' : "#8bc34a",
+    'deep_orange' : "#ff5722"
+}
+
 import sys
 
 def format(text, fc='red', bc='default', ft='normal'):
@@ -195,7 +221,6 @@ def browse_shape(sequence, shape_list_list, linelen=200, dot="", shape_title_lis
         print >>OUT, ""
         i += linelen
 
-
 def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shape_title_list=[], OUT=sys.stdout):
     """
     sequence_list           -- Sequence list
@@ -261,5 +286,4 @@ def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shap
             index += 1
         i += linelen
         print >>OUT, ""
-
 

@@ -2,7 +2,10 @@
 
 IPyRSSA (<b>I</b>ntegrative <b>Py</b>thon library for <b>R</b>NA <b>S</b>econdary <b>S</b>tructure <b>A</b>nalysis) is a set of Python library to analyze RNA secondary structure and SHAPE data.
 
-#### Update your local directory
+#### New
+Python 3 is supported now.
+
+#### Update your local library
 
 `git pull origin `
 
@@ -28,8 +31,16 @@ IPyRSSA (<b>I</b>ntegrative <b>Py</b>thon library for <b>R</b>NA <b>S</b>econdar
 	<td> Read dotBracket file </td>
 </tr>
 <tr>
+	<td> write_dot <span style="color:red"><b>New!</b></span> </td>
+	<td> Write dotBracket file </td>
+</tr>
+<tr>
 	<td> load_shape </td>
 	<td> Read SHAPE .out file </td>
+</tr>
+<tr>
+	<td> load_SHAPEMap <span style="color:red"><b>New!</b></span> </td>
+	<td> Read SHAPEmap file </td>
 </tr>
 <tr>
 	<td> init_pd_rect </td>
@@ -58,6 +69,10 @@ IPyRSSA (<b>I</b>ntegrative <b>Py</b>thon library for <b>R</b>NA <b>S</b>econdar
 <tr>
 	<td> calc_AUC </td>
 	<td> Calculate AUC with ROC points </td>
+</tr>
+<tr>
+	<td> calc_AUC_v2 <span style="color:red"><b>New!</b></span> </td>
+	<td> Calculate AUC with dot and shape_list </td>
 </tr>
 </table>
 
@@ -106,6 +121,10 @@ Warning: This module can only be used on loginviewxx/mgtxx
 <tr>
 	<td> new_job </td>
 	<td> Get a job handle </td>
+</tr>
+<tr>
+	<td> handle.set_job_depends <span style="color:red"><b>New!</b></span> </td>
+	<td> The job will be executed when parameter jobs done </td>
 </tr>
 <tr>
 	<td> handle.submit </td>
@@ -162,7 +181,7 @@ Prerequisites: pyliftover, pysam
 </tr>
 </table>
 
-<h3> Structure </h3>
+<h3> Structure module </h3>
 
 `import Structure`
 
@@ -198,6 +217,14 @@ Prerequisites: pyliftover, pysam
 <tr>
 	<td> dot2bpmap </td>
 	<td> Dotbracket to dictionary </td>
+</tr>
+<tr>
+	<td> parse_pseudoknot <span style="color:red"><b>New!</b></span> </td>
+	<td> Parse pseudoknot with ctList </td>
+</tr>
+<tr>
+	<td> ct2dot <span style="color:red"><b>New!</b></span> </td>
+	<td> ctList to dotbracket </td>
 </tr>
 <tr>
 	<td> dot_from_ctFile </td>
@@ -279,10 +306,95 @@ Prerequisites: java, VARNA (http://varna.lri.fr)
 <tr>
 	<td> Plot_RNAStructure_highlight </td>
 	<td> Plot the RNA structure and highlight some regions </td>
+</tr>
+<tr>
+	<td> Map_rRNA_Shape <span style="color:red"><b>New!</b></span> </td>
+	<td> Output rRNA structure with PostScript format </td>
+</tr>
+<tr>
+	<td> get_rRNA_refseq <span style="color:red"><b>New!</b></span> </td>
+	<td> Return reference rRNA sequence </td>
+</tr>
 </table>
 
+<h3> Rosetta module <span style="color:red"><b>New!</b></span> </h3> 
 
+`from D3 import Rosetta `
 
+Prerequisites: ROSETTA, it can be only run in cluster
+
+<table width="100%">
+<tr>
+	<th width="20%"> Function name </th>
+	<th> Usage </th>
+</tr>
+<tr>
+	<td> pred_3D_rosetta </td>
+	<td> Predict RNA 3D structure with ROSETTA </td>
+</tr>
+</table>
+
+<h3> MCSym module <span style="color:red"><b>New!</b></span> </h3> 
+
+`from D3 import MCSym `
+
+<table width="100%">
+<tr>
+	<th width="20%"> Function name </th>
+	<th> Usage </th>
+</tr>
+<tr>
+	<td> upload_MCSym_job </td>
+	<td> Upload MCSym RNA 3D structure prediction job </td>
+</tr>
+<tr>
+	<td> get_MCSym_status </td>
+	<td> Get the status of the job </td>
+</tr>
+<tr>
+	<td> minimize_MCSym_newThread </td>
+	<td> Minimize the pdbs </td>
+</tr>
+<tr>
+	<td> score_MCSym_newThread </td>
+	<td> Score and ranking pdbs </td>
+</tr>
+<tr>
+	<td> fetch_top_MCSym_pdb_newThread </td>
+	<td> Download top scored pdbs </td>
+</tr>
+</table>
+
+<h3> HDOCK module <span style="color:red"><b>New!</b></span> </h3> 
+
+`from D3 import HDOCK `
+
+<table width="100%">
+<tr>
+	<th width="20%"> Function name </th>
+	<th> Usage </th>
+</tr>
+<tr>
+	<td> upload_HDOCK_job </td>
+	<td> Upload HDOCK RNA-protein docking job </td>
+</tr>
+<tr>
+	<td> get_HDOCK_status </td>
+	<td> Get the status of the job </td>
+</tr>
+<tr>
+	<td> guess_HDOCK_time_left </td>
+	<td> guess the time to leave </td>
+</tr>
+<tr>
+	<td> fetch_HDOCK_results </td>
+	<td> Download all results </td>
+</tr>
+<tr>
+	<td> fetch_HDOCK_top10_results </td>
+	<td> Download top 10 results </td>
+</tr>
+</table>
 
 
 

@@ -35,22 +35,33 @@ job.get_submit_command()
 job.submit()
 job.wait()
 
+########### Example 4 -- job2 will be excute when job1 done
+
+job1 = Cluster.new_job(command="sleep 5", job_name="job1")
+job2 = Cluster.new_job(command="sleep 2", job_name="job1")
+job2.set_job_depends(job1) # you can use list for multiple process
+job1.submit() # job1 must be sumbit before job2
+job2.submit()
+
+
 """
 
-import os, sys, commands, random
+import os, sys, random, re, time
+import General, subprocess
 
-import General
+if 'getstatusoutput' in dir(subprocess):
+    from subprocess import getstatusoutput
+else:
+    from commands import getstatusoutput
 
 bkill = General.require_exec("bkill", warning="", exception=True)
 bsub = General.require_exec("bsub", warning="", exception=True)
 bjobs = General.require_exec("bjobs", warning="", exception=True)
 
 def host_name():
-    import os
     return os.environ['HOSTNAME']
 
 def get_bsub_id(output_info):
-    import re
     return int(re.findall("\\<(\\d+)\\>", output_info)[0])
 
 def bjob_finish(job_id):
@@ -79,12 +90,27 @@ def job_status(job_id):
     
     Return one of Not_Found, DONE, RUN, PEND, EXIT
     """
-    import os
     CMD = bjobs + " %s" % (job_id, )
-    out_info = commands.getstatusoutput(CMD)[1] 
+    out_info = getstatusoutput(CMD)[1] 
     if "is not found" in out_info:
         return "Not_Found"
     return out_info.split('\n')[1].split()[2]
+
+def compile_depence_string(job_depends):
+    """
+    job_depends             -- Job id/JOB_HANDLE object list to wait beform running
+    """
+    depence_string = ""
+    for job in job_depends:
+        if isinstance(job, JOB_HANDLE):
+            job_id = job.job_id
+        elif isinstance(job, int):
+            job_id = job
+        else:
+            raise RuntimeError("job_depends should contain JOB_HANDLE objects and ints")
+        depence_string += "&&done(%s)" % (job_id, )
+    
+    return "\""+depence_string.lstrip('&&')+"\""
 
 class JOB_HANDLE:
     def __init__(self, queue, cpu=1, job_name=""):
@@ -110,6 +136,19 @@ class JOB_HANDLE:
         """
         self.command = command
     
+    def set_job_depends(self, job_depends):
+        """
+        job_depends         -- Job id/JOB_HANDLE object list to wait beform running
+        """
+        if type(job_depends) == list:
+            self.job_depends = job_depends
+        elif type(job_depends) == JOB_HANDLE:
+            self.job_depends = [ job_depends ]
+        elif type(job_depends) == int:
+            self.job_depends = [ job_depends ]
+        else:
+            raise RuntimeError("job_depends should be list or JOB_HANDLE or int")
+    
     def set_log_file(self, logFn):
         """
         logFn            -- A file to save the content from standard output
@@ -127,11 +166,11 @@ class JOB_HANDLE:
         Return True if the job have ready
         """
         if host_name() not in ('loginview02', 'mgt01', 'loginview03'):
-            print >>sys.stderr, "Please submit a job in loginview02, loginview03 or mgt01"
+            sys.stderr.writelines("Please submit a job in loginview02, loginview03 or mgt01\n")
             return False
         
         if not hasattr(self, 'command'):
-            print >>sys.stderr, "Please set command using set_job_command"
+            sys.stderr.writelines("Please set command using set_job_command\n")
             return False
         
         return True
@@ -151,16 +190,18 @@ class JOB_HANDLE:
         if hasattr(self, 'errFn'):
             CMD += " -e %s" % (self.errFn, )
         
+        if hasattr(self, 'job_depends'):
+            CMD += " -w " + compile_depence_string(self.job_depends)
+        
         CMD += """ "%s" """ % ( self.command,  )
         
         return CMD
     
-    def submit(self):
+    def submit(self, verbose=False):
         """
         Submit the command if it is ready
         Return the job id
         """
-        import commands
         
         if self.has_submit:
             raise NameError("Error: this job has submited")
@@ -169,7 +210,9 @@ class JOB_HANDLE:
             raise NameError("Error: JOB not ready")
         
         CMD_string = self.get_submit_command()
-        self.job_id = int( get_bsub_id(commands.getstatusoutput(CMD_string)[1]) )
+        if verbose:
+            print(CMD_string)
+        self.job_id = int( get_bsub_id(getstatusoutput(CMD_string)[1]) )
         self.has_submit = True
         
         return self.job_id
@@ -198,7 +241,6 @@ class JOB_HANDLE:
         
         Wait the job to finish
         """
-        import time
         
         if not self.has_submit:
             raise NameError("Error: Please submit the job at first")
@@ -210,8 +252,7 @@ class JOB_HANDLE:
         """
         Kill the job
         """
-        if not self.has_finish():
-            kill_job(self.job_id);
+        kill_job(self.job_id);
     
     def __del__(self):
         if self.has_submit:
@@ -243,8 +284,6 @@ def new_job(command, queue="Z-ZQF", cpu=1, job_name="", logFn="", errFn=""):
         job.set_error_file(errFn)
     
     return job
-
-
 
 
 

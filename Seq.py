@@ -60,7 +60,7 @@ class seqClass(object):
         import pysam
         
         self.genome = pysam.Fastafile(seqFn)
-        print "seqClass: input 0-based coordinate -- [start, end)"
+        sys.stdout.writelines("seqClass: input 0-based coordinate -- [start, end)\n")
     
     def fetch(self, chrID, chrStart, chrEnd, chrStrand="+"):
         """
@@ -121,12 +121,12 @@ def lift_genome(lifter, chrID, chrStart, chrEnd, chrStrand, verbose=False):
     end_list = lifter.convert_coordinate(chrID, chrEnd, chrStrand)
     if start_list is None or end_list is None:
         if verbose:
-            print >>sys.stderr, "Warning: %s:%s-%s(%s) cannot convert -- chromosome not found" % (chrID, chrStart, chrEnd, chrStrand)
+            sys.stderr.writelines("Warning: %s:%s-%s(%s) cannot convert -- chromosome not found\n" % (chrID, chrStart, chrEnd, chrStrand))
         return (-1, -1, -1, -1)
     
     if len(start_list) == 0 or len(end_list) == 0:
         if verbose:
-            print >>sys.stderr, "Warning: %s:%s-%s(%s) cannot convert -- not appropriate map position" % (chrID, chrStart, chrEnd, chrStrand)
+            sys.stderr.writelines("Warning: %s:%s-%s(%s) cannot convert -- not appropriate map position\n" % (chrID, chrStart, chrEnd, chrStrand))
         return (-1, -1, -1, -1)
     
     s_chrID, s_chrPos, s_chrStrand, _ = start_list[0]
@@ -134,12 +134,12 @@ def lift_genome(lifter, chrID, chrStart, chrEnd, chrStrand, verbose=False):
     
     if s_chrID != e_chrID or s_chrStrand != e_chrStrand:
         if verbose:
-            print >>sys.stderr, "Warning: %s:%s-%s(%s) cannot convert -- different start/end chromosome or strand" % (chrID, chrStart, chrEnd, chrStrand)
+            sys.stderr.writelines("Warning: %s:%s-%s(%s) cannot convert -- different start/end chromosome or strand\n" % (chrID, chrStart, chrEnd, chrStrand))
         return (-1, -1, -1, -1)
     
     if s_chrID != chrID or s_chrStrand != chrStrand:
         if verbose:
-            print >>sys.stderr, "Warning: %s:%s-%s(%s) cannot convert -- chromosome or strand changed" % (chrID, chrStart, chrEnd, chrStrand)
+            sys.stderr.writelines("Warning: %s:%s-%s(%s) cannot convert -- chromosome or strand changed\n" % (chrID, chrStart, chrEnd, chrStrand))
         return (-1, -1, -1, -1)
     
     return (s_chrID, s_chrPos, e_chrPos, s_chrStrand)

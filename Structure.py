@@ -1,6 +1,11 @@
 #-*- coding:utf-8 -*-
 
-import os, sys, commands, random, time, re
+import os, sys, subprocess, random, time, re
+
+if 'getstatusoutput' in dir(subprocess):
+    from subprocess import getstatusoutput
+else:
+    from commands import getstatusoutput
 
 ############################################
 #######    Internal function
@@ -17,9 +22,9 @@ def __build_SHAPE_constraint(shape_list, outFn):
     
     for idx in range(len(shape_list)):
         if shape_list[idx] != "NULL":
-            print >>SHAPE, "%d\t%s" % (idx+1, shape_list[idx])
+            SHAPE.writelines("%d\t%s\n" % (idx+1, shape_list[idx]))
         else:
-            print >>SHAPE, "%d\t%s" % (idx+1, -999)
+            SHAPE.writelines("%d\t%s\n" % (idx+1, -999))
     
     SHAPE.close()
 
@@ -31,7 +36,7 @@ def __build_single_seq_fasta(sequence, outFn):
     Build single-seq .fasta file for RNAstructure
     """
     SEQ = open(outFn, 'w')
-    print >>SEQ, ">test\n%s" % (sequence, )
+    SEQ.writelines(">test\n%s\n" % (sequence, ))
     SEQ.close()
 
 def __build_single_seq_file(sequence, outFn):
@@ -42,7 +47,7 @@ def __build_single_seq_file(sequence, outFn):
     Build single-seq .seq file for RNAstructure
     """
     SEQ = open(outFn, 'w')
-    print >>SEQ, ";\nMySeq\n%s\n1" % (sequence, )
+    SEQ.writelines(";\nMySeq\n%s\n1\n" % (sequence, ))
     SEQ.close()
 
 def __build_bp_constraint(bp_constraint, outFn):
@@ -53,13 +58,13 @@ def __build_bp_constraint(bp_constraint, outFn):
     Build a constraint file for RNAstructure
     """
     OUT = open(outFn, 'w')
-    print >>OUT, "DS:\n-1\nSS:\n-1\nMod:\n-1"
-    print >>OUT, "Pairs:"
+    OUT.writelines("DS:\n-1\nSS:\n-1\nMod:\n-1\n")
+    OUT.writelines("Pairs:\n")
     for left, right in bp_constraint:
-        print >>OUT, "%s %s" % (left, right)
+        OUT.writelines("%s %s\n" % (left, right))
     
-    print >>OUT, "-1 -1"
-    print >>OUT, "FMN:\n-1\nForbids:\n-1 -1\n"
+    OUT.writelines("-1 -1\n")
+    OUT.writelines("FMN:\n-1\nForbids:\n-1 -1\n\n")
     OUT.close()
 
 def __build_single_dot_file(sequence, dot, outFn, title='test_seq'):
@@ -72,7 +77,7 @@ def __build_single_dot_file(sequence, dot, outFn, title='test_seq'):
     Build a single sequence ct file for RNAstructure
     """
     assert len(sequence) == len(dot)
-    print >>open(outFn, 'w'), ">%s\n%s\n%s\n" % (title, sequence, dot)
+    open(outFn, 'w').writelines(">%s\n%s\n%s\n\n" % (title, sequence, dot))
 
 ############################################
 #######    Structure prediction
@@ -134,24 +139,24 @@ def predict_structure(sequence, shape_list=[], bp_constraint=[], mfe=True, clean
     Fold_CMD += ' > /dev/null'
     
     if verbose: 
-        print Fold_CMD
+        print(Fold_CMD)
     
     os.system(Fold_CMD)
     
     ct2dot_cmd = ct2dot + " %s %d /dev/stdout"
     
     if not mfe:
-        return_code, return_string = commands.getstatusoutput( "grep \"ENERGY\" %s | wc -l" % (ct_file, ) )
+        return_code, return_string = getstatusoutput( "grep \"ENERGY\" %s | wc -l" % (ct_file, ) )
         structure_number = int( return_string.strip() )
         structure_list = []
         regex_cap_free_energy = re.compile("=\s*(\-+[\d\.]+)")
         for idx in range(structure_number):
-            return_code, return_string = commands.getstatusoutput( ct2dot_cmd % (ct_file, idx+1) )
+            return_code, return_string = getstatusoutput( ct2dot_cmd % (ct_file, idx+1) )
             energy = float(regex_cap_free_energy.findall(return_string.split('\n')[0])[0])
             structure = return_string.split('\n')[2]
             structure_list.append( (energy, structure) )
     else:
-        return_code, return_string = commands.getstatusoutput( ct2dot_cmd % (ct_file, 1) )
+        return_code, return_string = getstatusoutput( ct2dot_cmd % (ct_file, 1) )
         structure = return_string.split('\n')[2]
         structure_list = structure
     
@@ -199,11 +204,11 @@ def bi_fold(seq_1, seq_2, local_pairing=False, mfe=True, clean=True, verbose=Fal
         CMD = bifold + " %s %s %s > /dev/null" % (seq_1_fn, seq_2_fn, ct_fn)
     
     if verbose:
-        print CMD
+        print(CMD)
     
     os.system(CMD)
     
-    return_code, return_string = commands.getstatusoutput( "grep ENERGY %s | wc -l" % (ct_fn, ) )
+    return_code, return_string = getstatusoutput( "grep ENERGY %s | wc -l" % (ct_fn, ) )
     structure_number = int( return_string.strip() )
     structure_list = []
     ct2dot_cmd = ct2dot + " %s %d /dev/stdout"
@@ -211,7 +216,7 @@ def bi_fold(seq_1, seq_2, local_pairing=False, mfe=True, clean=True, verbose=Fal
     for idx in range(structure_number):
         if mfe and idx == 1:
             break
-        return_code, return_string = commands.getstatusoutput( ct2dot_cmd % (ct_fn, idx+1) )
+        return_code, return_string = getstatusoutput( ct2dot_cmd % (ct_fn, idx+1) )
         lines = return_string.split('\n')
         energy = float(lines[0].strip().split()[-2])
         structure = return_string.split()[8]
@@ -382,11 +387,11 @@ def dyalign(seq_1, seq_2, shape_list_1=[], shape_list_2=[], clean=True, thread_n
         __build_SHAPE_constraint(shape_list_2, shape2_file)
         CONF += "\nshape_2_file = "+shape2_file
     
-    print >>open(conf_file, 'w'), CONF
+    open(conf_file, 'w').writelines(CONF+"\n")
     
     CMD = dynalign + " " + conf_file + " > /dev/null"
     if verbose:
-        print CMD
+        print(CMD)
     os.system(CMD)
     
     dot_1 = dot_from_ctFile(ct1_file, number=1)[1]
@@ -499,11 +504,11 @@ def multialign(seq_list, shape_list_list=[], si=-0.6, sm=1.8, thread_nums=1, cle
         if shape_file:
             __build_SHAPE_constraint(shape_list_list[i], shape_file)
     
-    print >>open(conf_file, 'w'), CONF
+    open(conf_file, 'w').writelines(CONF+"\n")
     
     CMD = multilign + " "+conf_file + " > /dev/null"
     if verbose:
-        print CMD
+        print(CMD)
     os.system(CMD)
     
     dot_list = []
@@ -540,11 +545,11 @@ def dot2ct(dot):
     for idx,symbol in enumerate(dot):
         if symbol in ('(', '[', '{', '<'):
             stack.append( (idx+1, symbol) )
-        elif symbol == '.':
+        elif symbol in '.-_=:,':
             pass
         else:
             for i in range( len(stack)-1, -1, -1 ):
-                if stack[i][1]+symbol in ("()", "[]", "{}", "<>"):
+                if stack[i][1]+symbol in ("()", "[]", r"{}", "<>"):
                     ctList.append( (stack[i][0], idx+1) )
                     del stack[i]
                     break
@@ -552,7 +557,7 @@ def dot2ct(dot):
                     pass
     
     if len(stack) != 0:
-        print >>sys.stderr, "Error: Bad dotbracket structure"
+        sys.stderr.writelines("Error: Bad dotbracket structure\n")
         raise NameError("Error: Bad dotbracket structure")
     
     ctList.sort()
@@ -571,11 +576,11 @@ def dot2bpmap(dot):
     for idx,symbol in enumerate(dot):
         if symbol in ('(', '[', '{', '<'):
             stack.append( (idx+1, symbol) )
-        elif symbol == '.':
+        elif symbol == '.-_=:,':
             pass
         else:
             for i in range( len(stack)-1, -1, -1 ):
-                if stack[i][1]+symbol in ("()", "[]", "{}", "<>"):
+                if stack[i][1]+symbol in ("()", "[]", r"{}", "<>"):
                     bpmap[idx+1] = stack[i][0]
                     bpmap[stack[i][0]] = idx+1
                     del stack[i]
@@ -584,10 +589,110 @@ def dot2bpmap(dot):
                     pass
     
     if len(stack) != 0:
-        print >>sys.stderr, "Error: Bad dotbracket structure"
+        sys.stderr.writelines("Error: Bad dotbracket structure\n")
         raise NameError("Error: Bad dotbracket structure")
     
     return bpmap
+
+def parse_pseudoknot(ctList):
+    """
+    ctList              -- paired-bases: [(3, 8), (4, 7)]
+    
+    Parse pseusoknots from clList
+    Return:
+        [ [(3, 8), (4, 7)], [(3, 8), (4, 7)], ... ]
+    """
+    ctList.sort(key=lambda x:x[0])
+    ctList = [ it for it in ctList if it[0]<it[1] ]
+    paired_bases = set()
+    for lb,rb in ctList:
+        paired_bases.add(lb)
+        paired_bases.add(rb)
+    
+    # Collect duplex
+    duplex = []
+    cur_duplex = [ ctList[0] ]
+    for i in range(1, len(ctList)):
+        bulge_paired = False
+        for li in range(ctList[i-1][0]+1, ctList[i][0]):
+            if li in paired_bases:
+                bulge_paired = True
+                break
+        if ctList[i][1]+1>ctList[i-1][1]:
+            bulge_paired = True
+        else:
+            for ri in range(ctList[i][1]+1, ctList[i-1][1]):
+                if ri in paired_bases:
+                    bulge_paired = True
+                    break
+        if bulge_paired:
+            duplex.append(cur_duplex)
+            cur_duplex = [ ctList[i] ]
+        else:
+            cur_duplex.append(ctList[i])
+    if cur_duplex:
+        duplex.append(cur_duplex)
+    
+    # Discriminate duplex are pseudoknot
+    Len = len(duplex)
+    incompatible_duplex = []
+    for i in range(Len):
+        for j in range(i+1, Len):
+            bp1 = duplex[i][0]
+            bp2 = duplex[j][0]
+            if bp1[0]<bp2[0]<bp1[1]<bp2[1] or bp2[0]<bp1[0]<bp2[1]<bp1[1]:
+                incompatible_duplex.append((i, j))
+    
+    pseudo_found = []
+    while incompatible_duplex:
+        # count pseudo
+        count = {}
+        for l,r in incompatible_duplex:
+            count[l] = count.get(l,0)+1
+            count[r] = count.get(r,0)+1
+        
+        # find most possible pseudo
+        count = list(count.items())
+        count.sort( key=lambda x: (x[1],-len(duplex[x[0]])) )
+        possible_pseudo = count[-1][0]
+        pseudo_found.append(possible_pseudo)
+        i = 0
+        while i<len(incompatible_duplex):
+            l,r = incompatible_duplex[i]
+            if possible_pseudo in (l,r):
+                del incompatible_duplex[i]
+            else:
+                i += 1
+    
+    pseudo_duplex = []
+    for i in pseudo_found:
+        pseudo_duplex.append(duplex[i])
+    
+    return pseudo_duplex
+
+def ct2dot(ctList, length):
+    """
+    ctList              -- paired-bases: [(3, 8), (4, 7)]
+    length              -- Length of structure
+    
+    Convert ctlist structure to dot-bracket
+    [(3, 8), (4, 7)]  => ..((..))..
+    """
+    dot = ['.']*length
+    if len(ctList) == 0:
+        return "".join(dot)
+    ctList = sorted(ctList, key=lambda x:x[0])
+    ctList = [ it for it in ctList if it[0]<it[1] ]
+    pseudo_duplex = parse_pseudoknot(ctList)
+    for l,r in ctList:
+        dot[l-1] = '('
+        dot[r-1] = ')'
+    dottypes = [ '<>', r'{}', '[]' ]
+    for i,duplex in enumerate(pseudo_duplex):
+        for l,r in duplex:
+            dot[l-1] = dottypes[i][0]
+            dot[r-1] = dottypes[i][1]
+    return "".join(dot)
 
 ############################################
 #######     Read file
@@ -603,11 +708,10 @@ def dot_from_ctFile(ctFn, number=1):
     Require: ct2dot
     """
     import General
-    import commands
     ct2dot = General.require_exec("ct2dot")
     
     CMD = ct2dot + " %s %s /dev/stdout" % (ctFn, number)
-    return_code, information = commands.getstatusoutput(CMD)
+    return_code, information = getstatusoutput(CMD)
     return information.strip().split('\n')[1:3]
 
 def read_DYA_alignment(inFn):
@@ -907,10 +1011,10 @@ def calcSHAPEStructureScore(dot, shape_list, stem, params={}, report=False):
     assert stem_len == stem_base + loop_base + bulge_base + intLoop_base
     
     if report:
-        print "stem_score: %.3f; stem_penalty: %3.f; stem_base: %s" % (stem_score, stem_penalty, stem_base)
-        print "loop_score: %.3f; loop_bonus: %3.f; loop_penalty: %3.f; loop_base: %s" % (loop_score, loop_bonus, loop_penalty, loop_base)
-        print "bulge_score: %.3f; bulge_bonus: %3.f; bulge_base: %s" % (bulge_score, bulge_bonus, bulge_base)
-        print "intLoop_score: %.3f; intLoop_bonus: %3.f; intLoop_base: %s" % (intLoop_score, intLoop_bonus, intLoop_base)
+        print("stem_score: %.3f; stem_penalty: %3.f; stem_base: %s" % (stem_score, stem_penalty, stem_base))
+        print("loop_score: %.3f; loop_bonus: %3.f; loop_penalty: %3.f; loop_base: %s" % (loop_score, loop_bonus, loop_penalty, loop_base))
+        print("bulge_score: %.3f; bulge_bonus: %3.f; bulge_base: %s" % (bulge_score, bulge_bonus, bulge_base))
+        print("intLoop_score: %.3f; intLoop_bonus: %3.f; intLoop_base: %s" % (intLoop_score, intLoop_bonus, intLoop_base))
     
     return round(final_score, 3)
 
@@ -1087,12 +1191,12 @@ def multi_alignment(seq_list, clean=True, verbose=False):
     
     OUT = open(fa_file, 'w')
     for i, sequence in enumerate(seq_list):
-        print >>OUT, ">seq_%s\n%s" % (i+1, sequence)
+        OUT.writelines(">seq_%s\n%s\n" % (i+1, sequence))
     OUT.close()
     
     CMD = muscle+" -in %s -out %s" % (fa_file, afa_file)
     if verbose:
-        print CMD
+        print(CMD)
     else:
         CMD += " -quiet"
     os.system(CMD)
@@ -1131,12 +1235,12 @@ def kalign_alignment(seq_list, clean=True, verbose=False):
         
     OUT = open(fa_file, 'w')
     for i, sequence in enumerate(seq_list):
-        print >>OUT, ">seq_%s\n%s" % (i+1, sequence)
+        OUT.writelines(">seq_%s\n%s\n" % (i+1, sequence))
     OUT.close()
     
     CMD = kalign + " -in %s -out %s -format fasta" % (fa_file, afa_file)
     if verbose: 
-        print CMD
+        print(CMD)
     else:
         CMD += " -quiet"
     os.system(CMD)
@@ -1163,7 +1267,7 @@ def __split_cigar_forGS(cigar_code):
     
     if len(cigar_list) % 2 != 0:
         warning = "Error: %s is not a valid cigar code" % (cigar_code, )
-        print >>sys.stderr, warning
+        sys.stderr.writelines(warning+"\n")
         raise NameError(warning)
     
     cigar_pairs = []
@@ -1195,7 +1299,7 @@ def __format_ref_forGS(full_ref_seq, position, cigar_pairs):
         elif code == 'D':
             formated_ref += "-"*Len
         else:
-            print >>sys.stderr, "Error: Unexpected cigar code"
+            sys.stderr.writelines("Error: Unexpected cigar code\n")
             raise NameError("Error: Unexpected cigar code")
     
     return formated_ref
@@ -1220,7 +1324,7 @@ def __format_query_forGS(full_query_seq, cigar_pairs):
             formated_query += full_query_seq[ current_pos-1:current_pos+Len-1 ]
             current_pos += Len
         else:
-            print >>sys.stderr, "Error: Unexpected cigar code"
+            sys.stderr.writelines("Error: Unexpected cigar code\n")
             raise NameError("Error: Unexpected cigar code")
     
     return formated_query
@@ -1261,7 +1365,7 @@ def global_search(query_dict, ref_dict, thread_nums=1, min_identity=0.6, evalue=
     CMD = glsearch36 + " -3 -m 8CC -n %s %s -T %s -E %s | grep -v \"^#\" | cut -f 1,2,3,9,13" % (query_fa_file, ref_fa_file, thread_nums, evalue)
     
     if verbose:
-        print CMD
+        print(CMD)
     
     for line in os.popen(CMD):
         query_id, ref_id, identity, map_pos, cigar = line.rstrip("\n").split()
@@ -1332,7 +1436,7 @@ def locate_homoseq(seq_dict, main_id, align_func, main_region=None, sub_seq=None
     """
     
     if main_region is None and sub_seq is None:
-        print >>sys.stderr, "Error: main_region and sub_seq must have a parameter"
+        sys.stderr.writelines("Error: main_region and sub_seq must have a parameter\n")
         raise NameError("Error: main_region and sub_seq must have a parameter");
     
     if not sub_seq:
