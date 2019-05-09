@@ -31,7 +31,7 @@ Python 3 is supported now.
 	<td> Read dotBracket file </td>
 </tr>
 <tr>
-	<td> write_dot <span style="color:red"><b>New!</b></span> </td>
+	<td> write_dot <i><b>New!</b></i> </td>
 	<td> Write dotBracket file </td>
 </tr>
 <tr>
@@ -39,7 +39,7 @@ Python 3 is supported now.
 	<td> Read SHAPE .out file </td>
 </tr>
 <tr>
-	<td> load_SHAPEMap <span style="color:red"><b>New!</b></span> </td>
+	<td> load_SHAPEMap <i><b>New!</b></i> </td>
 	<td> Read SHAPEmap file </td>
 </tr>
 <tr>
@@ -71,7 +71,7 @@ Python 3 is supported now.
 	<td> Calculate AUC with ROC points </td>
 </tr>
 <tr>
-	<td> calc_AUC_v2 <span style="color:red"><b>New!</b></span> </td>
+	<td> calc_AUC_v2 <i><b>New!</b></i> </td>
 	<td> Calculate AUC with dot and shape_list </td>
 </tr>
 </table>
@@ -123,7 +123,7 @@ Warning: This module can only be used on loginviewxx/mgtxx
 	<td> Get a job handle </td>
 </tr>
 <tr>
-	<td> handle.set_job_depends <span style="color:red"><b>New!</b></span> </td>
+	<td> handle.set_job_depends <i><b>New!</b></i> </td>
 	<td> The job will be executed when parameter jobs done </td>
 </tr>
 <tr>
@@ -219,11 +219,11 @@ Prerequisites: pyliftover, pysam
 	<td> Dotbracket to dictionary </td>
 </tr>
 <tr>
-	<td> parse_pseudoknot <span style="color:red"><b>New!</b></span> </td>
+	<td> parse_pseudoknot <i><b>New!</b></i> </td>
 	<td> Parse pseudoknot with ctList </td>
 </tr>
 <tr>
-	<td> ct2dot <span style="color:red"><b>New!</b></span> </td>
+	<td> ct2dot <i><b>New!</b></i> </td>
 	<td> ctList to dotbracket </td>
 </tr>
 <tr>
@@ -308,16 +308,16 @@ Prerequisites: java, VARNA (http://varna.lri.fr)
 	<td> Plot the RNA structure and highlight some regions </td>
 </tr>
 <tr>
-	<td> Map_rRNA_Shape <span style="color:red"><b>New!</b></span> </td>
+	<td> Map_rRNA_Shape <i><b>New!</b></i> </td>
 	<td> Output rRNA structure with PostScript format </td>
 </tr>
 <tr>
-	<td> get_rRNA_refseq <span style="color:red"><b>New!</b></span> </td>
+	<td> get_rRNA_refseq <i><b>New!</b></i> </td>
 	<td> Return reference rRNA sequence </td>
 </tr>
 </table>
 
-<h3> Rosetta module <span style="color:red"><b>New!</b></span> </h3> 
+<h3> Rosetta module <i><b>New!</b></i> </h3> 
 
 `from D3 import Rosetta `
 
@@ -334,7 +334,7 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </tr>
 </table>
 
-<h3> MCSym module <span style="color:red"><b>New!</b></span> </h3> 
+<h3> MCSym module <i><b>New!</b></i> </h3> 
 
 `from D3 import MCSym `
 
@@ -365,7 +365,7 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </tr>
 </table>
 
-<h3> HDOCK module <span style="color:red"><b>New!</b></span> </h3> 
+<h3> HDOCK module <i><b>New!</b></i> </h3> 
 
 `from D3 import HDOCK `
 
