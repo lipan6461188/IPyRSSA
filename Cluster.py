@@ -47,16 +47,19 @@ job2.submit()
 """
 
 import os, sys, random, re, time
-import General, subprocess
+import General, subprocess, Colors
 
 if 'getstatusoutput' in dir(subprocess):
     from subprocess import getstatusoutput
 else:
     from commands import getstatusoutput
 
-bkill = General.require_exec("bkill", warning="", exception=True)
-bsub = General.require_exec("bsub", warning="", exception=True)
-bjobs = General.require_exec("bjobs", warning="", exception=True)
+try:
+    bkill = General.require_exec("bkill", warning="", exception=True)
+    bsub = General.require_exec("bsub", warning="", exception=True)
+    bjobs = General.require_exec("bjobs", warning="", exception=True)
+except NameError:
+    print(Colors.f("Error: bkill not found in PATH, Cluster module cannot be used",fc='red'))
 
 def host_name():
     return os.environ['HOSTNAME']
@@ -165,8 +168,8 @@ class JOB_HANDLE:
         """
         Return True if the job have ready
         """
-        if host_name() not in ('loginview02', 'mgt01', 'loginview03'):
-            sys.stderr.writelines("Please submit a job in loginview02, loginview03 or mgt01\n")
+        if host_name() not in ('loginview02', 'mgt01', 'loginview03', 'ZIO01'):
+            sys.stderr.writelines("Please submit a job in loginview02, loginview03 or mgt01 or ZIO01\n")
             return False
         
         if not hasattr(self, 'command'):

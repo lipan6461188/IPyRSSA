@@ -9,28 +9,39 @@ def load_fasta(seqFn, rem_tVersion=False):
     """
     Fasta = {}
     cur_tid = ''
+    cur_seq = ''
     
     for line in open(seqFn):
         if line[0] == '>':
+            if cur_seq != '':
+                Fasta[cur_tid] = cur_seq
+                cur_seq = ''
             cur_tid = line[1:].split()[0]
             if rem_tVersion and '.' in cur_tid: 
                 cur_tid = ".".join(cur_tid.split(".")[:-1])
-            Fasta[ cur_tid ] = ''
         else:
-            Fasta[ cur_tid ] += line.strip()
+            cur_seq += line.rstrip()
+    
+    if cur_seq != '':
+        Fasta[cur_tid] = cur_seq
     
     return Fasta
+
 
 def write_fasta(Fasta, seqFn):
     """
     Fasta               -- A dictionary { tid1: seq1, tid2: seq2, ... }
     seqFn               -- Fasta file
     """
-    from Seq import flat_seq
     
     OUT = open(seqFn, 'w')
     for trans_id in Fasta:
-        OUT.writelines('>%s\n%s\n' % (trans_id, flat_seq(Fasta[trans_id])))
+        OUT.writelines(">"+trans_id+"\n")
+        full_seq = Fasta[trans_id]
+        start = 0
+        while start<len(full_seq):
+            OUT.writelines(full_seq[start:start+60]+"\n")
+            start+=60
     
     OUT.close()
 
@@ -171,6 +182,81 @@ def load_SHAPEMap(shapeFn, relocate=False, loadAll=False):
     
     return shapemap
 
+def load_ct(ctFn, load_all=False):
+    """
+    Read ct file
+    
+    ctFn                -- ct file name
+    load_all            -- load all ct from ct file, or load the first one
+    
+    Return:
+        [seq,dotList,length] if load_all==False
+        {1:[seq,dotList,length], ...} if load_all==True
+    """
+    Ct = {}
+    
+    ID = 1
+    ctList = []
+    seq = ""
+    last_id = 0
+    
+    seqLen = 0
+    
+    for line in open(ctFn):
+        data = line.strip().split()
+        if not data[0].isdigit():
+            raise RuntimeError("cf file format Error: the first item should be a digit")
+        elif seqLen==0:
+            seqLen = int(data[0])
+        elif int(data[0])!=last_id+1:
+            raise RuntimeError("ct file format error...")
+        else:
+            left_id = int(data[0])
+            right_id = int(data[4])
+            seq += data[1]
+            if right_id != 0 and left_id<right_id:
+                ctList.append((left_id, right_id))
+            last_id += 1
+            if left_id == seqLen:
+                #print(data, last_id+1)
+                Ct[ID] = [seq, ctList, seqLen]
+                assert seqLen==len(seq)
+                last_id = 0
+                seq = ""
+                ctList = []
+                ID += 1
+                seqLen = 0
+                if not load_all:
+                    return Ct[1]
+    
+    if seq:
+        Ct[ID] = [seq, ctList, seqLen]
+        if seqLen != left_id:
+            raise RuntimeError("ct file format error...")
+    
+    return Ct
+
+def write_ct(Fasta, Dot, ctFn):
+    """
+    Fasta           -- A dictionary { tid1: seq1, tid2: seq2, ... }
+    Dot             -- A dictionary { tid1: dotbracket1, tid2: dotbracket2, ... }
+    ctFn            -- .ct file
+    
+    Save dot-bracket structure to .ct file
+    """
+    import Structure
+    OUT = open(ctFn, 'w')
+    for tid in set(Fasta)&set(Dot):
+        seq = Fasta[tid]
+        dot = Dot[tid]
+        assert len(seq) == len(dot)
+        bpmap = Structure.dot2bpmap(dot)
+        OUT.writelines( str(len(seq))+"\t"+tid+"\n" )
+        for i in range(len(seq)):
+            paired_base = bpmap.get(i+1, 0)
+            OUT.writelines("%5d %c %7d %4d %4d %4d\n" % ( i+1,seq[i],i,i+2,paired_base,1 ))
+    OUT.close()
+
 def init_pd_rect(rowNum, colNum, rowNames=[], colNames=[], init_value=None):
     """
     rowNum             -- Number of rows
@@ -209,12 +295,13 @@ def init_list_rect(rowNum, colNum, init_value=0):
     
     Initialize a pandas rect
     """
+    import copy
     rect = []
     
     for i in range(rowNum):
         row = []
         for j in range(colNum):
-            row.append(init_value)
+            row.append(copy.deepcopy(init_value))
         rect.append(row)
     
     return rect
@@ -244,7 +331,7 @@ def bi_search(item, sorted_list):
     end = len(sorted_list) - 1
     
     while start <= end:
-        middle = (start + end) / 2
+        middle = (start + end) // 2
         if sorted_list[middle] < item:
             start = middle + 1
         
@@ -410,4 +497,32 @@ def calc_AUC_v2(dot, shape_list):
     
     return AUC
 
+def seq_entropy(sequence):
+    """
+    Give a sequence, calculate the entropy (0-4)
+    sequence        -- Sequence
+    """
+    import numpy as np
+    if 'N' in sequence:
+        raise RuntimeError("Error: N in sequence, not allowed")
+    
+    sequence = sequence.replace('U','T')
+    binucs = []
+    i = 0
+    while i<len(sequence)-2:
+        binucs.append( sequence[i:i+2] )
+        i+=1
+    fb = ['A','T','C','G']
+    m = {}
+    for b1 in fb:
+        for b2 in fb:
+            m[b1+b2] = 0
+    for b in binucs:
+        m[b[0]+b[1]] += 1
+    
+    m = list(m.values())
+    ms = sum(m)
+    prob = [ii/ms for ii in m]
+    entropy = sum([ -p*np.log2(p) for p in prob if p!=0 ])
+    return entropy
 

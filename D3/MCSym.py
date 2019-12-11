@@ -102,7 +102,7 @@ def upload_MCSym_job(seq, dot, seq_title, time_limit="48h", gen_modellimit=1000,
     else:
         res = requests.post("https://www.major.iric.ca/cgi-bin/MC-Sym/mcsym.cgi", data=param, headers=headers)
     res.raise_for_status()
-    jobID = re.findall("<a HREF=\"http://www.major.iric.ca/MC-Sym/Work/(\\w+)/\" target=\"_blank\">HERE</a>", res.text)
+    jobID = re.findall("<a HREF=\"https://www.major.iric.ca/MC-Sym/Work/(\\w+)/\" target=\"_blank\">HERE</a>", res.text)
     if len(jobID) == 0:
         if verbose:
             print("Failed: maybe you have exceeded the maximum limit")
@@ -128,7 +128,7 @@ def is_MCSym_error(MCSym_jobID):
     mcsym_err.close()
     if len(lines)==0:
         return False
-    if 'error' in lines[-1]:
+    if 'error' in lines[-1].decode('utf-8'):
         return True
     else:
         return False
@@ -139,7 +139,7 @@ def is_MCSym_complete(MCSym_jobID):
     mcsym_out.close()
     if len(lines)==0:
         return False
-    if "report for structure saved in log file" in lines[-1]:
+    if "report for structure saved in log file" in lines[-1].decode('utf-8'):
         return True
     else:
         return False
@@ -240,6 +240,7 @@ def read_MCSym_pdb_energy(MCSym_jobID):
     energy_list = []
     mcsym_energy = urllib2.urlopen("https://major.iric.ca/MC-Sym/Work/%s/energy.sorted.data" % (MCSym_jobID, ))
     for line in mcsym_energy.readlines():
+        line = line.decode('utf-8')
         fn,energy = re.findall("Total energy of `(\\S+)` is:\\s*(\\S+) Kcal/mol.", line)[0]
         energy = float(energy)
         energy_list.append( (fn, energy) )

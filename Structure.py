@@ -114,7 +114,7 @@ def predict_structure(sequence, shape_list=[], bp_constraint=[], mfe=True, clean
     os.mkdir(ROOT)
     fa_file = ROOT + "input.fa"
     shape_file = ROOT + "input.shape"
-    constrain_file = "input.const"
+    constrain_file = ROOT + "input.const"
     ct_file = ROOT + "output.ct"
     
     Fold_CMD = Fold + " %s %s -si %s -sm %s" % (fa_file, ct_file, si, sm)
@@ -166,7 +166,7 @@ def predict_structure(sequence, shape_list=[], bp_constraint=[], mfe=True, clean
     
     return structure_list
 
-def bi_fold(seq_1, seq_2, local_pairing=False, mfe=True, clean=True, verbose=False):
+def bi_fold(seq_1, seq_2, local_pairing=False, mfe=True, clean=True, is_dna=False, verbose=False):
     """
     seq_1                   -- Raw sequence 1
     seq_2                   -- Raw sequence 2
@@ -198,10 +198,15 @@ def bi_fold(seq_1, seq_2, local_pairing=False, mfe=True, clean=True, verbose=Fal
     __build_single_seq_fasta(seq_1, seq_1_fn)
     __build_single_seq_fasta(seq_2, seq_2_fn)
     
+    CMD = bifold + " %s %s %s" % (seq_1_fn, seq_2_fn, ct_fn)
+    
     if not local_pairing:
-        CMD = bifold + " --intramolecular %s %s %s > /dev/null" % (seq_1_fn, seq_2_fn, ct_fn)
-    else:
-        CMD = bifold + " %s %s %s > /dev/null" % (seq_1_fn, seq_2_fn, ct_fn)
+        CMD += " --intramolecular"
+    
+    if is_dna:
+        CMD += " --DNA"
+    
+    CMD += " > /dev/null"
     
     if verbose:
         print(CMD)
@@ -527,6 +532,140 @@ def multialign(seq_list, shape_list_list=[], si=-0.6, sm=1.8, thread_nums=1, cle
     
     return dot_list, aligned_seq_list, align_dot_list
 
+def estimate_energy(sequence, dot, shape_list=[], simple=True, si=-0.6, sm=1.8, is_dna=False, clean=True, verbose=False):
+    """
+    sequence                -- Raw sequence
+    dot                     -- Dot-bracket structure
+    shape_list              -- A list of SHAPE scores
+    simple                  -- Use simple energy function that is the same used in Fold/Fold-smp
+    si                      -- Intercept
+    sm                      -- Slope
+    clean                   -- Delete all tmp files
+    verbose                 -- Print command
+    
+    Calculate the folding free energy change of a structure
+    
+    Require: efn2 or efn2-smp
+    """
+    import General
+    import shutil
+    
+    assert len(sequence) == len(dot)
+    
+    efn2 = General.require_exec("efn2-smp", exception=False)
+    if not efn2:
+        efn2 = General.require_exec("efn2")
+    
+    randID = random.randint(1000000,9000000)
+    
+    ROOT = "/tmp/estimate_energy_%s/" % (randID, )
+    os.mkdir(ROOT)
+    shape_file = ROOT + "input.shape"
+    energy_file = ROOT + "energy.txt"
+    ct_file = ROOT + "input.ct"
+    
+    efn2_CMD = efn2 + " %s %s -si %s -sm %s" % (ct_file, energy_file, si, sm)
+    
+    write_ctFn({"test": sequence}, {"test": dot}, ct_file)
+    
+    if shape_list:
+        assert len(sequence) == len(shape_list)
+        __build_SHAPE_constraint(shape_list, shape_file)
+        efn2_CMD += " --SHAPE " + shape_file
+    
+    if simple:
+        efn2_CMD += " --simple"
+    
+    if is_dna:
+        efn2_CMD += " --DNA"
+    
+    efn2_CMD += ' > /dev/null'
+    
+    if verbose: 
+        print(efn2_CMD)
+    
+    os.system(efn2_CMD)
+    
+    energy = float(open(energy_file).readline().strip().split()[-1])
+    
+    # clean
+    if clean:
+        shutil.rmtree(ROOT)
+    
+    return energy
+
+def partition(sequence, shape_list=[], bp_constraint=[], clean=True, si=-0.6, sm=1.8, md=None, verbose=False):
+    """
+    sequence                -- Raw sequence
+    shape_list              -- A list of SHAPE scores
+    bp_constraint           -- [[1,10], [2,9], [3,8]...] 1-based
+    clean                   -- Delete all tmp files
+    si                      -- Intercept
+    sm                      -- Slope
+    md                      -- Maximum pairing distance between nucleotides.
+    verbose                 -- Print command
+    
+    Estimate partition function using partition or partition-smp
+    
+    Require: partition or partition-smp, ProbabilityPlot
+    """
+    import General
+    import shutil
+    
+    partition = General.require_exec("partition-smp", exception=False)
+    if not partition:
+        partition = General.require_exec("partition")
+    
+    ProbabilityPlot = General.require_exec("ProbabilityPlot")
+    
+    randID = random.randint(1000000,9000000)
+    
+    ROOT = "/tmp/partition_%s/" % (randID, )
+    os.mkdir(ROOT)
+    fa_file = ROOT + "input.fa"
+    shape_file = ROOT + "input.shape"
+    constrain_file = ROOT + "input.const"
+    pfs_file = ROOT + "output.pfs"
+    pairingProb_file = ROOT + "pairingprob.txt"
+    
+    partition_CMD = partition + " %s %s -si %s -sm %s" % (fa_file, pfs_file, si, sm)
+    
+    __build_single_seq_fasta(sequence, fa_file)
+    
+    if shape_list:
+        assert len(sequence) == len(shape_list)
+        __build_SHAPE_constraint(shape_list, shape_file)
+        partition_CMD += " --SHAPE " + shape_file
+    
+    if bp_constraint:
+        __build_bp_constraint(bp_constraint, constrain_file)
+        partition_CMD += " --constraint " + constrain_file
+    
+    if md:
+        partition_CMD += " --maxdistance " + str(md)
+    
+    partition_CMD += ' -q > /dev/null'
+    
+    if verbose: 
+        print(partition_CMD)
+    
+    os.system(partition_CMD)
+    
+    ProbabilityPlot_cmd = ProbabilityPlot + " %s %s -t > /dev/null" % (pfs_file, pairingProb_file)
+    os.system(ProbabilityPlot_cmd)
+    
+    pairingProb = []
+    for lc,line in enumerate(open(pairingProb_file)):
+        if lc>1:
+            nc1,nc2,log10Prob = line.strip().split()
+            pairingProb.append( (int(nc1),int(nc2),10**(-float(log10Prob))) )
+    
+    # clean
+    if clean:
+        shutil.rmtree(ROOT)
+    
+    return pairingProb
+
 ############################################
 #######    Format conversion
 ############################################
@@ -688,11 +827,93 @@ def ct2dot(ctList, length):
         dot[l-1] = '('
         dot[r-1] = ')'
     dottypes = [ '<>', r'{}', '[]' ]
+    if len(pseudo_duplex)>len(dottypes):
+        print("Warning: too many psudoknot type: %s>%s" % (len(pseudo_duplex),len(dottypes)))
     for i,duplex in enumerate(pseudo_duplex):
         for l,r in duplex:
-            dot[l-1] = dottypes[i][0]
-            dot[r-1] = dottypes[i][1]
+            dot[l-1] = dottypes[i%3][0]
+            dot[r-1] = dottypes[i%3][1]
     return "".join(dot)
+
+def write_ctFn(Fasta, Dot, ctFn):
+    """
+    Fasta           -- A dictionary { tid1: seq1, tid2: seq2, ... }
+    Dot             -- A dictionary { tid1: dotbracket1, tid2: dotbracket2, ... }
+    ctFn            -- .ct file
+    
+    Save dot-bracket structure to .ct file
+    """
+    import General
+    General.write_ct(Fasta, Dot, ctFn)
+
+def dot2align(seq, dot):
+    """
+    Convert secondary structure to aligned sequence. 
+    1. The sequence must contain III seperator;
+    2. Base pairing is not allowed in single end
+    
+    seq         -- Sequence contain III seperator
+    dot         -- Secondary structure
+    
+    Return left_aligned_seq, right_aligned_seq, aligned_symbols
+
+    Example:
+        seq = "TCCCTGGTGGTCTAGTGGTTAGGATTCGGCGCTCTIIIAGTGCGCCGAATCCTAACCACTAGACCACCAAGG"
+        dot = "..((((((((((((((((((((((((((((((.((...)).))))))))))))))))))))))))))).)))"
+        data = dot2align(seq, dot)
+    """
+    assert len(seq)==len(dot)
+    III_index = seq.find("III")
+    assert III_index != -1
+    ls, le, rs, re = 0, III_index, III_index+3, len(seq)
+    left_seq = seq[ls:le]
+    right_seq = seq[rs:re][::-1]
+    left_dot = dot[ls:le]
+    right_dot = dot[rs:re][::-1]
+    assert ')' not in left_dot
+    assert '(' not in right_dot
+    assert left_dot.count(')')==right_dot.count('(')
+    
+    left_aligned_seq = ""
+    right_aligned_seq = ""
+    aligned_symbols = ""
+    i,j = 0,0
+    while i<len(left_seq) and j<len(right_seq):
+        if left_dot[i]=='(' and right_dot[j]==')':
+            left_aligned_seq += left_seq[i]
+            right_aligned_seq += right_seq[j]
+            aligned_symbols += "|"
+            i,j = i+1,j+1
+        elif left_dot[i]=='(' and right_dot[j]=='.':
+            left_aligned_seq += "-"
+            right_aligned_seq += right_seq[j]
+            aligned_symbols += " "
+            j = j+1
+        elif left_dot[i]=='.' and right_dot[j]==')':
+            left_aligned_seq += left_seq[i]
+            right_aligned_seq += "-"
+            aligned_symbols += " "
+            i = i+1
+        elif left_dot[i]=='.' and right_dot[j]=='.':
+            left_aligned_seq += left_seq[i]
+            right_aligned_seq += right_seq[j]
+            aligned_symbols += " "
+            i,j = i+1,j+1
+        else:
+            print(left_dot[i], right_dot[j])
+            raise RuntimeError("Unexpected Error")
+    
+    while i<len(left_seq):
+        left_aligned_seq += left_seq[i]
+        right_aligned_seq += "-"
+        i = i+1
+    
+    while j<len(right_seq):
+        left_aligned_seq += "-"
+        right_aligned_seq += right_seq[j]
+        j = j+1
+    
+    return left_aligned_seq, right_aligned_seq, aligned_symbols
 
 ############################################
 #######     Read file

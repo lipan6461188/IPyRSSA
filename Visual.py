@@ -76,7 +76,18 @@ def __base_color_heatmap_cmd(shape_list):
     CMD += "-colorMap \"%s\" " % (shape_str[:-1], )
     return CMD
 
-def Plot_RNAStructure_Shape(sequence, dot, shape_list, mode='label', correctT=True, scaling=0.8, highlight_region=[], cutofflist=[0.3,0.5,0.7], title="", wait=True, VARNAProg=VARNAProg):
+def __annotation_cmd(annotation_list):
+    """
+    annotation_list    -- [ {'text': 'loop1', 'anchor':10, 'color': '#ff9800', 'size': 10, 'type':'B'},... ]
+    """
+    annotation_str = ""
+    for annot in annotation_list:
+        assert 'text' in annot
+        assert 'anchor' in annot
+        annotation_str += ';%s:anchor=%d,size=%d,color=%s,type=%s' % (annot['text'], annot['anchor'], annot.get('size',7), annot.get('color','#000000'), annot.get('type','B'))
+    return "-annotations \"" + annotation_str[1:] + "\""
+
+def Plot_RNAStructure_Shape(sequence, dot, shape_list, mode='label', correctT=True, scaling=0.8, highlight_region=[], annotation=[], cutofflist=[0.3,0.5,0.7], title="", wait=True, VARNAProg=VARNAProg):
     """
     sequence            -- Raw sequence
     dot                 -- Dotbracket structure
@@ -88,6 +99,8 @@ def Plot_RNAStructure_Shape(sequence, dot, shape_list, mode='label', correctT=Tr
     title               -- Title of plot
     wait                -- Nohup the command
     VARNAProg           -- Path of VARNA
+    
+    annotation_list    -- [ {'text': 'loop1', 'anchor':10, 'color': '#ff9800', 'size': 10, 'type':'B'},... ]
     """
     
     assert len(sequence) == len(dot) == len(shape_list)
@@ -109,6 +122,9 @@ def Plot_RNAStructure_Shape(sequence, dot, shape_list, mode='label', correctT=Tr
     
     if highlight_region:
         CMD += " " + __highlight_region_cmd(highlight_region)
+    
+    if annotation:
+        CMD += " " + __annotation_cmd(annotation)
     
     if scaling:
         CMD += " -spaceBetweenBases \"%s\"" % (scaling, )
@@ -142,7 +158,7 @@ def __base_color_base_cmd(seq):
     if G: CMD += "-applyBasesStyle4on \"%s\" " % (G, )
     return CMD
 
-def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.8, highlight_region=[], title="", wait=True, VARNAProg=VARNAProg):
+def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.8, highlight_region=[], annotation=[], title="", wait=True, VARNAProg=VARNAProg):
     """
     sequence            -- Raw sequence
     dot                 -- Dotbracket structure
@@ -152,6 +168,8 @@ def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.
     title               -- Title of plot
     wait                -- Nohup the command
     VARNAProg           -- Path of VARNA
+    
+    annotation_list    -- [ {'text': 'loop1', 'anchor':10, 'color': '#ff9800', 'size': 10, 'type':'B'},... ]
     """
     
     assert len(sequence) == len(dot)
@@ -172,6 +190,9 @@ def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.
     if highlight_region:
         CMD += " " + __highlight_region_cmd(highlight_region)
     
+    if annotation:
+        CMD += " " + __annotation_cmd(annotation)
+
     if scaling:
         CMD += " -spaceBetweenBases \"%s\"" % (scaling, )
     
@@ -183,7 +204,7 @@ def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.
     
     return CMD
 
-def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', correctT=True, scaling=0.8, highlight_region=[], title="", wait=True, VARNAProg=VARNAProg):
+def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', correctT=True, scaling=0.8, highlight_region=[], annotation=[], title="", wait=True, VARNAProg=VARNAProg):
     """
     sequence            -- Raw sequence
     dot                 -- Dotbracket structure
@@ -194,6 +215,8 @@ def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', cor
     title               -- Title of plot
     wait                -- Nohup the command
     VARNAProg           -- Path of VARNA
+    
+    annotation_list    -- [ {'text': 'loop1', 'anchor':10, 'color': '#ff9800', 'size': 10, 'type':'B'},... ]
     """
     
     assert len(sequence) == len(dot)
@@ -215,6 +238,9 @@ def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', cor
     if highlight_region:
         CMD += " " + __highlight_region_cmd(highlight_region)
     
+    if annotation:
+        CMD += " " + __annotation_cmd(annotation)
+
     if scaling:
         CMD += " -spaceBetweenBases \"%s\"" % (scaling, )
     
@@ -240,11 +266,11 @@ PS_FILE = {
 
     'human_small':      'human_small.ps',
     'human_5S':         'human_5S.ps',
-    'human_smallMito':  'human_MitoSmall.ps',
+    'human_smallMito':  'human_smallMito.ps',
 
     'mouse_small':      'mouse_small.ps',
     'mouse_5S':         'mouse_5S.ps',
-    'mouse_smallMito':  'mouse_MitoSmall.ps'
+    'mouse_smallMito':  'mouse_smallMito.ps'
 }
 
 def load_ps(psFn):
@@ -312,9 +338,9 @@ def get_rRNA_refseq(target):
     """
     Return reference sequence
     target              -- rRNA target
-                           yeast_small, yeast_large, yeast_5S, yeast_MitoSmall
-                           human_small, human_5S, human_MitoSmall,
-                           mouse_small, mouse_5S, mouse_MitoSmall
+                           yeast_small, yeast_large, yeast_5S, yeast_smallMito
+                           human_small, human_5S, human_smallMito,
+                           mouse_small, mouse_5S, mouse_smallMito
     """
     assert target in PS_FILE
     

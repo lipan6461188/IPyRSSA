@@ -10,7 +10,6 @@ Python 3 is supported now.
 `git pull origin `
 
 <h3> General module </h3>
-
 `import General`
 
 <table width="100%">
@@ -41,6 +40,14 @@ Python 3 is supported now.
 <tr>
 	<td> load_SHAPEMap <i><b>New!</b></i> </td>
 	<td> Read SHAPEmap file </td>
+</tr>
+<tr>
+	<td> load_ct <i><b>New!</b></i> </td>
+	<td> Read .ct file </td>
+</tr>
+<tr>
+	<td> write_ct <i><b>New!</b></i> </td>
+	<td> Write .ct file </td>
 </tr>
 <tr>
 	<td> init_pd_rect </td>
@@ -77,7 +84,6 @@ Python 3 is supported now.
 </table>
 
 <h3> Colors module </h3>
-
 `import Colors`
 
 <table width="100%">
@@ -108,7 +114,6 @@ Python 3 is supported now.
 </table>
 
 <h3> Cluster module </h3>
-
 `import Cluster`
 
 Warning: This module can only be used on loginviewxx/mgtxx
@@ -149,7 +154,6 @@ Warning: This module can only be used on loginviewxx/mgtxx
 </table>
 
 <h3> Seq module </h3>
-
 `import Seq`
 
 Prerequisites: pyliftover, pysam
@@ -182,7 +186,6 @@ Prerequisites: pyliftover, pysam
 </table>
 
 <h3> Structure module </h3>
-
 `import Structure`
 
 <table width="100%">
@@ -211,6 +214,14 @@ Prerequisites: pyliftover, pysam
 	<td> Predict a common secondary structure for multiple sequences </td>
 </tr>
 <tr>
+	<td> estimate_energy <i><b>New!</b></i> </td>
+	<td> Calculate the folding free energy change of a structure </td>
+</tr>
+<tr>
+	<td> partition <i><b>New!</b></i> </td>
+	<td> Calculate the partition function </td>
+</tr>
+<tr>
 	<td> dot2ct </td>
 	<td> Dotbracket to list </td>
 </tr>
@@ -225,6 +236,14 @@ Prerequisites: pyliftover, pysam
 <tr>
 	<td> ct2dot <i><b>New!</b></i> </td>
 	<td> ctList to dotbracket </td>
+</tr>
+<tr>
+	<td> write_ctFn <i><b>New!</b></i> </td>
+	<td> Save dot-bracket structure to .ct file </td>
+</tr>
+<tr>
+	<td> dot2align <i><b>New!</b></i> </td>
+	<td> Convert secondary structure to aligned sequence. </td>
 </tr>
 <tr>
 	<td> dot_from_ctFile </td>
@@ -285,7 +304,6 @@ Prerequisites: pyliftover, pysam
 </table>
 
 <h3> Visual module </h3>
-
 `import Visual`
 
 Prerequisites: java, VARNA (http://varna.lri.fr)
@@ -318,7 +336,6 @@ Prerequisites: java, VARNA (http://varna.lri.fr)
 </table>
 
 <h3> Rosetta module <i><b>New!</b></i> </h3> 
-
 `from D3 import Rosetta `
 
 Prerequisites: ROSETTA, it can be only run in cluster
@@ -335,7 +352,6 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </table>
 
 <h3> MCSym module <i><b>New!</b></i> </h3> 
-
 `from D3 import MCSym `
 
 <table width="100%">
@@ -366,8 +382,7 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </table>
 
 <h3> HDOCK module <i><b>New!</b></i> </h3> 
-
-`from D3 import HDOCK `
+`from D3 import HDOCK`
 
 <table width="100%">
 <tr>
@@ -396,6 +411,29 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </tr>
 </table>
 
+<h3> Figures module <i><b>New!</b></i> </h3>
+`import Figures`
 
-
+<table width="100%">
+<tr>
+	<th width="20%"> Function name </th>
+	<th> Usage </th>
+</tr>
+<tr>
+	<td> stackedBarPlot </td>
+	<td> Plot a stacked bar figure </td>
+</tr>
+<tr>
+	<td> violinPlot </td>
+	<td> Plot a violin figure </td>
+</tr>
+<tr>
+	<td> piePlot </td>
+	<td> Plot a pie figure </td>
+</tr>
+<tr>
+	<td> boxPlot </td>
+	<td> Plot a box figure </td>
+</tr>
+</table>
 
