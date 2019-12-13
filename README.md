@@ -30,7 +30,7 @@ Python 3 is supported now.
 	<td> Read dotBracket file </td>
 </tr>
 <tr>
-	<td> write_dot <i><b>New!</b></i> </td>
+	<td> write_dot </td>
 	<td> Write dotBracket file </td>
 </tr>
 <tr>
@@ -38,15 +38,15 @@ Python 3 is supported now.
 	<td> Read SHAPE .out file </td>
 </tr>
 <tr>
-	<td> load_SHAPEMap <i><b>New!</b></i> </td>
+	<td> load_SHAPEMap </td>
 	<td> Read SHAPEmap file </td>
 </tr>
 <tr>
-	<td> load_ct <i><b>New!</b></i> </td>
+	<td> load_ct </td>
 	<td> Read .ct file </td>
 </tr>
 <tr>
-	<td> write_ct <i><b>New!</b></i> </td>
+	<td> write_ct </td>
 	<td> Write .ct file </td>
 </tr>
 <tr>
@@ -78,7 +78,7 @@ Python 3 is supported now.
 	<td> Calculate AUC with ROC points </td>
 </tr>
 <tr>
-	<td> calc_AUC_v2 <i><b>New!</b></i> </td>
+	<td> calc_AUC_v2 </td>
 	<td> Calculate AUC with dot and shape_list </td>
 </tr>
 </table>
@@ -128,7 +128,7 @@ Warning: This module can only be used on loginviewxx/mgtxx
 	<td> Get a job handle </td>
 </tr>
 <tr>
-	<td> handle.set_job_depends <i><b>New!</b></i> </td>
+	<td> handle.set_job_depends </td>
 	<td> The job will be executed when parameter jobs done </td>
 </tr>
 <tr>
@@ -214,11 +214,11 @@ Prerequisites: pyliftover, pysam
 	<td> Predict a common secondary structure for multiple sequences </td>
 </tr>
 <tr>
-	<td> estimate_energy <i><b>New!</b></i> </td>
+	<td> estimate_energy </td>
 	<td> Calculate the folding free energy change of a structure </td>
 </tr>
 <tr>
-	<td> partition <i><b>New!</b></i> </td>
+	<td> partition </td>
 	<td> Calculate the partition function </td>
 </tr>
 <tr>
@@ -230,19 +230,19 @@ Prerequisites: pyliftover, pysam
 	<td> Dotbracket to dictionary </td>
 </tr>
 <tr>
-	<td> parse_pseudoknot <i><b>New!</b></i> </td>
+	<td> parse_pseudoknot </td>
 	<td> Parse pseudoknot with ctList </td>
 </tr>
 <tr>
-	<td> ct2dot <i><b>New!</b></i> </td>
+	<td> ct2dot </td>
 	<td> ctList to dotbracket </td>
 </tr>
 <tr>
-	<td> write_ctFn <i><b>New!</b></i> </td>
+	<td> write_ctFn </td>
 	<td> Save dot-bracket structure to .ct file </td>
 </tr>
 <tr>
-	<td> dot2align <i><b>New!</b></i> </td>
+	<td> dot2align </td>
 	<td> Convert secondary structure to aligned sequence. </td>
 </tr>
 <tr>
@@ -301,6 +301,10 @@ Prerequisites: pyliftover, pysam
 	<td> annotate_covariation </td>
 	<td> Annotate raw sequence to colorful sequence by highlight the covariation sites </td>
 </tr>
+<tr>
+	<td> dot_F1 </td>
+	<td> Compare predicted structure and true structure and calculate the F1 score </td>
+</tr>
 </table>
 
 <h3> Visual module </h3>
@@ -326,16 +330,17 @@ Prerequisites: java, VARNA (http://varna.lri.fr)
 	<td> Plot the RNA structure and highlight some regions </td>
 </tr>
 <tr>
-	<td> Map_rRNA_Shape <i><b>New!</b></i> </td>
+	<td> Map_rRNA_Shape </td>
 	<td> Output rRNA structure with PostScript format </td>
 </tr>
 <tr>
-	<td> get_rRNA_refseq <i><b>New!</b></i> </td>
+	<td> get_rRNA_refseq </td>
 	<td> Return reference rRNA sequence </td>
 </tr>
 </table>
 
-<h3> Rosetta module <i><b>New!</b></i> </h3> 
+<h3> Rosetta module </h3> 
+
 `from D3 import Rosetta `
 
 Prerequisites: ROSETTA, it can be only run in cluster
@@ -351,7 +356,8 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </tr>
 </table>
 
-<h3> MCSym module <i><b>New!</b></i> </h3> 
+<h3> MCSym module </h3> 
+
 `from D3 import MCSym `
 
 <table width="100%">
@@ -381,7 +387,8 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </tr>
 </table>
 
-<h3> HDOCK module <i><b>New!</b></i> </h3> 
+<h3> HDOCK module </h3> 
+
 `from D3 import HDOCK`
 
 <table width="100%">
@@ -411,7 +418,8 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </tr>
 </table>
 
-<h3> Figures module <i><b>New!</b></i> </h3>
+<h3> Figures module </h3>
+
 `import Figures`
 
 <table width="100%">
@@ -437,3 +445,44 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </tr>
 </table>
 
+### GPU module
+
+`import GPU`
+
+<table width="100%">
+<tr>
+	<th width="20%"> Function name </th>
+	<th> Usage </th>
+</tr>
+<tr>
+	<td> get_gpu_processes </td>
+	<td> Get process handles running on GPU  </td>
+</tr>
+<tr>
+	<td> get_gpu_list </td>
+	<td> Get a list of available gpu </td>
+</tr>
+<tr>
+	<td> get_free_gpus </td>
+	<td> Get a list of GPU id without process run on it </td>
+</tr>
+</table>
+
+### Alignment
+
+`import Alignment`
+
+<table width="100%">
+<tr>
+	<th width="20%"> Function name </th>
+	<th> Usage </th>
+</tr>
+<tr>
+	<td> blast_seq </td>
+	<td> Use blastn to search sequence </td>
+</tr>
+<tr>
+	<td> annotate_seq </td>
+	<td> Given a sequence and blastdb, search and annotate the sequence </td>
+</tr>
+</table>

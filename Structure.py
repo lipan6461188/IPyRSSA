@@ -1755,3 +1755,55 @@ def annotate_covariation(ref_aligned_seq, input_aligned_seq, ref_aligned_dot, an
     
     return "".join(anno_align_seq)
 
+############################################
+#######    Structure comparision
+############################################
+
+def correct_pair(pred_pair, true_pair, shift=1):
+    """
+    pred_pair           -- Predicted base pair (pos1, pos2)
+    true_pair           -- True base pair (pos1, pos2)
+    shift               -- Miximum shift
+    """
+    if abs(pred_pair[0]-true_pair[0])<=shift and pred_pair[1]==true_pair[1]:
+        return True
+    elif pred_pair[0]==true_pair[0] and abs(pred_pair[1]-true_pair[1])<=shift:
+        return True
+    return False
+
+def dot_F1(pred_dot, true_dot, shift=1):
+    """
+    Compare predicted structure and true structure and calculate the F1 score
+
+    pred_dot            -- Predicted dot-bracket structure
+    true_dot            -- True dot-bracket structure
+    shift               -- Miximum shift, shift=1 means that (i,j+1) and (i+1,j) are considered true
+    
+    Return F1 score
+    """
+    pred_ctlist = dot2ct(pred_dot)
+    true_ctlist = dot2ct(true_dot)
+    
+    TP = FP = FN = 0
+    for pred_pair in pred_ctlist:
+        find = False
+        for true_pair in true_ctlist:
+            if correct_pair(pred_pair, true_pair, shift=shift):
+                TP += 1
+                find = True
+                break
+        if not find:
+            FP += 1
+    
+    for true_pair in true_ctlist:
+        find = False
+        for pred_pair in pred_ctlist:
+            if correct_pair(pred_pair, true_pair, shift=shift):
+                find = True
+                break
+        if not find:
+            FN += 1
+    
+    F1 = 2*TP/(2*TP+FP+FN)
+    
+    return F1
