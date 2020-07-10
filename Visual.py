@@ -61,6 +61,123 @@ def __base_color_shape_cmd(shape_list, cutofflist=[0.3,0.5,0.7]):
     if NoData: CMD += "-applyBasesStyle5on \"%s\" " % (NoData, )
     return CMD
 
+def __dot_match_bpprob(dot, bpprob, warning=True):
+    """
+    dot                 -- Dot-bracket
+    bpprob              -- [(base1, base2, prob), ...]
+    """
+    import Structure
+    bpprob.sort(key=lambda x: x[0])
+    dot_bp = sorted(Structure.dot2ct(dot), key=lambda x: x[0])
+    
+    i, j = 0, 0
+    final_bpprob = []
+    while i<len(bpprob) and j<len(dot_bp):
+        if bpprob[i][:2]==dot_bp[j][:2]:
+            final_bpprob.append( bpprob[i] )
+            i += 1
+            j += 1
+        elif bpprob[i][0]>dot_bp[j][0]:
+            final_bpprob.append( list(dot_bp[j])+[None] ) # default
+            j += 1
+        else:
+            x,y = bpprob[i][:2]
+            if x<=y and warning:
+                print(f"Warning: ({x},{y}) is not a base pair in structure. Skip it.")
+            i += 1
+    while j<len(dot_bp):
+        final_bpprob.append( list(dot_bp[j])+[None] ) # default
+        j += 1
+    return final_bpprob
+
+def __basepair_bpprob_cmd(bpprob, cutofflist=[0.6,0.8,0.95], mode='color'):
+    """
+    bpprob             -- [(base1, base2, prob), ...]
+    cutofflist          -- The cutoff of values
+    mode                -- color/thickness/both
+    """
+    if len(cutofflist)!=3:
+        raise RuntimeError("Error: cutofflist should have length of 3")
+    
+    Level1 = []
+    Level2 = []
+    Level3 = []
+    Level4 = []
+    NoData = []
+    for b1,b2,prob in bpprob:
+        if prob is None:
+            NoData.append( (b1,b2,prob) )
+        elif prob > cutofflist[2]:
+            Level1.append( (b1,b2,prob) )
+        elif prob > cutofflist[1]:
+            Level2.append( (b1,b2,prob) )
+        elif prob > cutofflist[0]:
+            Level3.append( (b1,b2,prob) )
+        else:
+            Level4.append( (b1,b2,prob) )
+    CMD = ""
+    if Level1:
+        for b1,b2,prob in Level1:
+            if mode=='color':
+                CMD += f"({b1},{b2}):color=#2306f7;"
+            elif mode=='both':
+                CMD += f"({b1},{b2}):color=#2306f7,Thickness=4;"
+            elif mode=='thickness':
+                CMD += f"({b1},{b2}):Thickness=4;"
+    if Level2:
+        for b1,b2,prob in Level2:
+            if mode=='color':
+                CMD += f"({b1},{b2}):color=#7167f9;"
+            elif mode=='both':
+                CMD += f"({b1},{b2}):color=#7167f9,Thickness=3;"
+            elif mode=='thickness':
+                CMD += f"({b1},{b2}):Thickness=3;"
+    if Level3:
+        for b1,b2,prob in Level3:
+            if mode=='color':
+                CMD += f"({b1},{b2}):color=#b7b2f7;"
+            elif mode=='both':
+                CMD += f"({b1},{b2}):color=#b7b2f7,Thickness=2;"
+            elif mode=='thickness':
+                CMD += f"({b1},{b2}):Thickness=2;"
+    if Level4:
+        for b1,b2,prob in Level4:
+            if mode=='color':
+                CMD += f"({b1},{b2}):color=#e4e3fc;"
+            elif mode=='both':
+                CMD += f"({b1},{b2}):color=#e4e3fc,Thickness=1;"
+            elif mode=='thickness':
+                CMD += f"({b1},{b2}):Thickness=1;"
+    if NoData:
+        for b1,b2,prob in NoData:
+            if mode=='color':
+                CMD += f"({b1},{b2}):color=#aeaeaf;"
+            elif mode=='both':
+                CMD += f"({b1},{b2}):color=#aeaeaf,Thickness=1;"
+            elif mode=='thickness':
+                CMD += f"({b1},{b2}):Thickness=1;"
+    
+    CMD = f"-auxBPs \"{CMD}\""
+    return CMD
+
+def __manual_period(seqlen, first_base_pos, period, peroid_color='#ff5722'):
+    """
+    seqlen                      -- The sequence length
+    first_base_pos              -- The position of the first base
+    period                      -- Numbering period
+    peroid_color                -- Number color
+    """
+    cmd = "-periodNum 0 "
+    j = 0
+    annotation_cmd = ""
+    for i in range(first_base_pos, first_base_pos+seqlen):
+        j += 1
+        if i%period == 0:
+            annotation_cmd += f"{i}:type=B,anchor={j},size=8,color={peroid_color};"
+    if annotation_cmd:
+        cmd += f"-annotations \"{annotation_cmd}\""
+    return cmd
+
 def __base_color_heatmap_cmd(shape_list):
     shape_str = ""
     null_base_idx = []
@@ -87,7 +204,12 @@ def __annotation_cmd(annotation_list):
         annotation_str += ';%s:anchor=%d,size=%d,color=%s,type=%s' % (annot['text'], annot['anchor'], annot.get('size',7), annot.get('color','#000000'), annot.get('type','B'))
     return "-annotations \"" + annotation_str[1:] + "\""
 
-def Plot_RNAStructure_Shape(sequence, dot, shape_list, mode='label', correctT=True, scaling=0.8, highlight_region=[], annotation=[], cutofflist=[0.3,0.5,0.7], title="", wait=True, VARNAProg=VARNAProg):
+def Plot_RNAStructure_Shape(sequence, dot, shape_list, 
+    mode='label', correctT=True, scaling=0.8, 
+    highlight_region=[], annotation=[], cutofflist=[0.3,0.5,0.7], 
+    bpprob=[], bpprob_cutofflist=[0.6,0.8,0.95], bpprob_mode='color', bpwarning=True,
+    period=10, first_base_pos=1, peroid_color='#FFFFFF',
+    title="", wait=True, VARNAProg=VARNAProg):
     """
     sequence            -- Raw sequence
     dot                 -- Dotbracket structure
@@ -96,6 +218,13 @@ def Plot_RNAStructure_Shape(sequence, dot, shape_list, mode='label', correctT=Tr
     correctT            -- Covert T to U
     highlight_region    -- Regions to highlight
     cutofflist          -- The color cutoff
+    bpprob              -- Base pairing probability, only provide base pairs in the structure
+    bpprob_cutofflist   -- Base pairing color/thickness cutoff
+    bpprob_mode         -- color/thickness/both
+    bpwarning           -- Base pairing warning when provide base pairs not in the structure
+    period              -- Numbering the base for how many bases as period
+    first_base_pos      -- The number of first base
+    peroid_color        -- The period color
     title               -- Title of plot
     wait                -- Nohup the command
     VARNAProg           -- Path of VARNA
@@ -109,7 +238,7 @@ def Plot_RNAStructure_Shape(sequence, dot, shape_list, mode='label', correctT=Tr
     if correctT:
         sequence = sequence.replace('T', 'U')
     
-    CMD = "java -cp "+VARNAProg+" fr.orsay.lri.varna.applications.VARNAcmd -sequenceDBN %s -structureDBN \"%s\" -drawBackbone false -bpStyle simple " % (sequence, dot)
+    CMD = "java -cp "+VARNAProg+" fr.orsay.lri.varna.applications.VARNAcmd -sequenceDBN %s -structureDBN \"%s\" -drawBackbone false -drawBases false -bpStyle simple " % (sequence, dot)
     
     if mode == 'label':
         CMD += "-basesStyle1 \"label=#B61D22\" " + "-basesStyle2 \"label=#ED9616\" " + "-basesStyle3 \"label=#194399\" " + "-basesStyle4 \"label=#040000\" " + "-basesStyle5 \"label=#828282\" "
@@ -128,6 +257,15 @@ def Plot_RNAStructure_Shape(sequence, dot, shape_list, mode='label', correctT=Tr
     
     if scaling:
         CMD += " -spaceBetweenBases \"%s\"" % (scaling, )
+    
+    if bpprob:
+        new_bpprob = __dot_match_bpprob(dot, bpprob, bpwarning)
+        CMD += " " + __basepair_bpprob_cmd(new_bpprob, bpprob_cutofflist, bpprob_mode)
+    
+    if first_base_pos==1 and peroid_color=='#FFFFFF':
+        CMD += f" -period {period}"
+    else:
+        CMD += " " + __manual_period(len(sequence), first_base_pos, period, peroid_color)
     
     if title:
         CMD += " -title \"%s\"" % (title, )
@@ -158,13 +296,24 @@ def __base_color_base_cmd(seq):
     if G: CMD += "-applyBasesStyle4on \"%s\" " % (G, )
     return CMD
 
-def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.8, highlight_region=[], annotation=[], title="", wait=True, VARNAProg=VARNAProg):
+def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.8, 
+    highlight_region=[], annotation=[], 
+    bpprob=[], bpprob_cutofflist=[0.6,0.8,0.95], bpprob_mode='color', bpwarning=True,
+    period=10, first_base_pos=1, peroid_color='#FFFFFF',
+    title="", wait=True, VARNAProg=VARNAProg):
     """
     sequence            -- Raw sequence
     dot                 -- Dotbracket structure
     mode                -- Color mode: [label|fill|heatmap]
     correctT            -- Covert T to U
     highlight_region    -- Regions to highlight
+    bpprob              -- Base pairing probability, only provide base pairs in the structure
+    bpprob_cutofflist   -- Base pairing color/thickness cutoff
+    bpprob_mode         -- color/thickness/both
+    bpwarning           -- Base pairing warning when provide base pairs not in the structure
+    period              -- Numbering the base for how many bases as period
+    first_base_pos      -- The number of first base
+    peroid_color        -- The period color
     title               -- Title of plot
     wait                -- Nohup the command
     VARNAProg           -- Path of VARNA
@@ -178,7 +327,7 @@ def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.
     if correctT:
         sequence = sequence.replace('T', 'U')
     
-    CMD = "java -cp "+VARNAProg+" fr.orsay.lri.varna.applications.VARNAcmd -sequenceDBN %s -structureDBN \"%s\" -drawBackbone false -bpStyle simple " % (sequence, dot)
+    CMD = "java -cp "+VARNAProg+" fr.orsay.lri.varna.applications.VARNAcmd -sequenceDBN %s -structureDBN \"%s\" -drawBackbone false -drawBases false -bpStyle simple " % (sequence, dot)
     
     if mode == 'label':
         CMD += "-basesStyle1 \"label=#CCFFCC\" " + "-basesStyle2 \"label=#CCFFFF\" " + "-basesStyle3 \"label=#FFFFCC\" " + "-basesStyle4 \"label=#FFCCFF\" "
@@ -196,6 +345,15 @@ def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.
     if scaling:
         CMD += " -spaceBetweenBases \"%s\"" % (scaling, )
     
+    if bpprob:
+        new_bpprob = __dot_match_bpprob(dot, bpprob, bpwarning)
+        CMD += " " + __basepair_bpprob_cmd(new_bpprob, bpprob_cutofflist, bpprob_mode)
+    
+    if first_base_pos==1 and peroid_color=='#FFFFFF':
+        CMD += f" -period {period}"
+    else:
+        CMD += " " + __manual_period(len(sequence), first_base_pos, period, peroid_color)
+
     if title:
         CMD += " -title \"%s\"" % (title, )
     
@@ -204,7 +362,11 @@ def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.
     
     return CMD
 
-def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', correctT=True, scaling=0.8, highlight_region=[], annotation=[], title="", wait=True, VARNAProg=VARNAProg):
+def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', correctT=True, 
+    scaling=0.8, highlight_region=[], annotation=[], 
+    bpprob=[], bpprob_cutofflist=[0.6,0.8,0.95], bpprob_mode='color', bpwarning=True,
+    period=10, first_base_pos=1, peroid_color='#FFFFFF',
+    title="", wait=True, VARNAProg=VARNAProg):
     """
     sequence            -- Raw sequence
     dot                 -- Dotbracket structure
@@ -212,6 +374,13 @@ def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', cor
     mode                -- Color mode: [label|fill|heatmap]
     correctT            -- Covert T to U
     highlight_region    -- Regions to highlight
+    bpprob              -- Base pairing probability, only provide base pairs in the structure
+    bpprob_cutofflist   -- Base pairing color/thickness cutoff
+    bpprob_mode         -- color/thickness/both
+    bpwarning           -- Base pairing warning when provide base pairs not in the structure
+    period              -- Numbering the base for how many bases as period
+    first_base_pos      -- The number of first base
+    peroid_color        -- The period color
     title               -- Title of plot
     wait                -- Nohup the command
     VARNAProg           -- Path of VARNA
@@ -225,7 +394,7 @@ def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', cor
     if correctT:
         sequence = sequence.replace('T', 'U')
     
-    CMD = "java -cp "+VARNAProg+" fr.orsay.lri.varna.applications.VARNAcmd -sequenceDBN %s -structureDBN \"%s\" -drawBackbone false -bpStyle simple " % (sequence, dot)
+    CMD = "java -cp "+VARNAProg+" fr.orsay.lri.varna.applications.VARNAcmd -sequenceDBN %s -structureDBN \"%s\" -drawBackbone false -drawBases false -bpStyle simple " % (sequence, dot)
     
     if hg_base_list:
         if mode == 'label':
@@ -240,9 +409,18 @@ def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', cor
     
     if annotation:
         CMD += " " + __annotation_cmd(annotation)
-
+    
     if scaling:
         CMD += " -spaceBetweenBases \"%s\"" % (scaling, )
+    
+    if bpprob:
+        new_bpprob = __dot_match_bpprob(dot, bpprob, bpwarning)
+        CMD += " " + __basepair_bpprob_cmd(new_bpprob, bpprob_cutofflist, bpprob_mode)
+    
+    if first_base_pos==1 and peroid_color=='#FFFFFF':
+        CMD += f" -period {period}"
+    else:
+        CMD += " " + __manual_period(len(sequence), first_base_pos, period, peroid_color)
     
     if title:
         CMD += " -title \"%s\"" % (title, )
@@ -270,7 +448,10 @@ PS_FILE = {
 
     'mouse_small':      'mouse_small.ps',
     'mouse_5S':         'mouse_5S.ps',
-    'mouse_smallMito':  'mouse_smallMito.ps'
+    'mouse_smallMito':  'mouse_smallMito.ps',
+
+    'arabidopsis_small':    'arabidopsis_small.ps',
+    'arabidopsis_large':    ['arabidopsis_large_5.ps', 'arabidopsis_large_3.ps']
 }
 
 def load_ps(psFn):
@@ -292,21 +473,39 @@ def load_ps(psFn):
     
     return header_lines, base_lines, tail_lines, seq
 
-def Map_rRNA_Shape(sequence, shape_list, target, outPrex, mode='label', cutofflist=[0.3,0.5,0.7]):
+def Map_rRNA_Shape(sequence, shape_list, target, outPrex, title=None, mode='label', cutofflist=[0.3,0.5,0.7]):
     """
     sequence            -- Raw sequence is used to double-check
     shape_list          -- A list of SHAPE scores
     target              -- rRNA target
                            yeast_small, yeast_large, yeast_5S, yeast_smallMito,
                            human_small, human_5S, human_smallMito,
-                           mouse_small, mouse_5S, mouse_smallMito
+                           mouse_small, mouse_5S, mouse_smallMito,
+                           arabidopsis_small, arabidopsis_large
     outPrex             -- Output file prefix
+    title               -- Title for PDF file
     mode                -- Color mode: [label|fill|heatmap]
     cutofflist          -- The color cutoff
     """
     assert target in PS_FILE
     assert mode in ('label', 'fill', 'heatmap')
     assert len(sequence) == len(shape_list)
+    
+    title_map = {   'yeast_small':'Yeast small subunit rRNA',
+                    'yeast_large':'Yeast large subunit rRNA',
+                    'yeast_5S': 'Yeast 5S rRNA',
+                    'yeast_smallMito': 'Yeast mitochodria small subunit rRNA',
+                    'human_small':'Human small subunit rRNA',
+                    'human_5S': 'Human 5S rRNA',
+                    'human_smallMito': 'Human mitochodria small subunit rRNA',
+                    'mouse_small':'Mouse small subunit rRNA',
+                    'mouse_5S': 'Mouse 5S rRNA',
+                    'mouse_smallMito': 'Mouse mitochodria small subunit rRNA',
+                    'arabidopsis_small': 'Arabidopsis small subunit rRNA',
+                    'arabidopsis_large': 'Arabidopsis large subunit rRNA' }
+
+    if title is None:
+        title = title_map[target]
     
     psfiles = PS_FILE[target]
     if not isinstance(psfiles, list):
@@ -316,10 +515,13 @@ def Map_rRNA_Shape(sequence, shape_list, target, outPrex, mode='label', cutoffli
         full_path = PS_PATH + psfile
         header_lines, base_lines, tail_lines, seq = load_ps(full_path)
         cur_len = len(seq)
-        if sequence[start:start+cur_len].replace('T','U') != seq:
+        #print( len(sequence[start:start+cur_len]) )
+        #print( len(seq) )
+        if sequence[start:start+cur_len].replace('T','U') != seq.replace('T','U'):
+            #sys.stderr.writelines(sequence[start:start+cur_len].replace('T','U')+"|\n")
+            #sys.stderr.writelines(seq.replace('T','U')+"|\n")
             sys.stderr.writelines("Error: Different Sequence!!\n")
             return
-        start += cur_len
         if '_5.ps' in psfile:
             outFn = outPrex + '_5p.ps'
         elif '_3.ps' in psfile:
@@ -328,11 +530,14 @@ def Map_rRNA_Shape(sequence, shape_list, target, outPrex, mode='label', cutoffli
             outFn = outPrex + '.ps'
         if mode == 'label':
             print("Write file: "+outFn+"...")
-            write_label_ps(header_lines, base_lines, tail_lines, shape_list, outFn, cutofflist=cutofflist)
+            assert len(base_lines)==cur_len
+            #print(base_lines[:100], cur_len)
+            write_label_ps(header_lines, base_lines, tail_lines, shape_list[start:start+cur_len], title, outFn, cutofflist=cutofflist)
         elif mode == 'fill':
             sys.stderr.writelines("Sorry: Not applicant now\n")
         else:
             sys.stderr.writelines("Sorry: Not applicant now\n")
+        start += cur_len
 
 def get_rRNA_refseq(target):
     """
@@ -340,7 +545,8 @@ def get_rRNA_refseq(target):
     target              -- rRNA target
                            yeast_small, yeast_large, yeast_5S, yeast_smallMito
                            human_small, human_5S, human_smallMito,
-                           mouse_small, mouse_5S, mouse_smallMito
+                           mouse_small, mouse_5S, mouse_smallMito,
+                           arabidopsis_small, arabidopsis_large
     """
     assert target in PS_FILE
     
@@ -354,7 +560,7 @@ def get_rRNA_refseq(target):
         fullseq += seq
     return fullseq
 
-def write_label_ps(header_lines, base_lines, tail_lines, shape_list, outFn, cutofflist=[0.3,0.5,0.7]):
+def write_label_ps(header_lines, base_lines, tail_lines, shape_list, title, outFn, cutofflist=[0.3,0.5,0.7]):
     """
     header_lines            -- produced by load_ps
     base_lines              -- produced by load_ps
@@ -365,7 +571,10 @@ def write_label_ps(header_lines, base_lines, tail_lines, shape_list, outFn, cuto
     """
     OUT = open(outFn, "w")
     for header_line in header_lines:
+        if r'{title}' in header_line:
+            header_line = header_line.format(title=title)
         OUT.writelines(header_line)
+    #print(len(shape_list), len())
     for shape,base_line in zip(shape_list,base_lines):
         if shape == 'NULL':
             OUT.writelines("0.51 0.51 0.51 setrgbcolor\n")

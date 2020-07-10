@@ -35,6 +35,7 @@ def get_gpu_processes():
         sl += 1
     GPUProc_List = []
     for line in lines[sl+3:-1]:
+        if "No running processes found" in line: break
         data = line.strip('|').strip().split()
         gpu_id = int(data[0])
         pid = int(data[1])

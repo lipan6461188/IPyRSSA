@@ -227,3 +227,22 @@ def boxPlot(ax, data_list, width=0.4, labels=None, title=None, facecolors=None, 
     
     return obj
 
+def cdf(data, color='black', linestyle='--', label=None):
+    """
+    data            -- A list, [1,2,3,4...]
+    """
+    import numpy as np
+    data_size=len(data)
+    # Set bins edges
+    data_set=sorted(set(data))
+    bins=np.append(data_set, data_set[-1]+1)
+    # Use the histogram function to bin the data
+    counts, bin_edges = np.histogram(data, bins=bins, density=False)
+    counts = counts.astype(float)/data_size
+    # Find the cdf
+    cdf_ = np.cumsum(counts)
+    # Plot the cdf
+    plt.plot(bin_edges[0:-1], cdf_, linestyle=linestyle, color=color, label=label)
+    plt.ylim((0,1))
+    plt.ylabel("CDF")
+    #plt.grid(True)

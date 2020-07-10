@@ -27,6 +27,25 @@ def load_fasta(seqFn, rem_tVersion=False):
     
     return Fasta
 
+def load_stockholm(stoFn):
+    """
+    Read stockholm file
+    
+    Return:
+        [ (id2seq_dict, "...(((...)))...", "AGCTGACG..AGCTG"), ... ]
+    """
+    from Bio import AlignIO
+    from Bio.Alphabet import generic_rna
+    
+    alignment_list = []
+    for record in AlignIO.parse(stoFn, "stockholm"):
+        alignObjs = list(iter(record))
+        id2seq = { alignObj.id:str(alignObj.seq) for alignObj in alignObjs }
+        refStr = record.column_annotations.get("secondary_structure", "")
+        refAnnot = record.column_annotations.get("reference_annotation", "")
+        alignment_list.append((id2seq, refStr, refAnnot))
+    
+    return alignment_list
 
 def write_fasta(Fasta, seqFn):
     """
@@ -62,7 +81,7 @@ def load_dot(dotFn, rem_tVersion=False):
         else:
             content = line.strip()
             if content:
-                Dot[cur_tid].append( content )
+                Dot[cur_tid].append( content.split()[0] )
     
     ## check
     for tid in Dot:

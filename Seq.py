@@ -4,6 +4,17 @@ import re
 from pyliftover import LiftOver
 import sys
 
+# def reverse_comp(sequence):
+#     """
+#     sequence                -- Raw input sequence
+    
+#     Return the reverse complimentary sequence
+#     """
+#     RC_Map = {'A':'T', 'C':'G', 'T':'A', 'G':'C', 'N':'N',
+#                'a':'t', 'c':'g', 't':'a', 'g':'c', '-':'-'}
+
+#     return ''.join(map(lambda x: RC_Map[x], list(sequence[::-1])))
+
 def reverse_comp(sequence):
     """
     sequence                -- Raw input sequence
@@ -13,7 +24,12 @@ def reverse_comp(sequence):
     RC_Map = {'A':'T', 'C':'G', 'T':'A', 'G':'C', 'N':'N',
                'a':'t', 'c':'g', 't':'a', 'g':'c', '-':'-'}
     
-    return ''.join(map(lambda x: RC_Map[x], list(sequence[::-1])))
+    rc_seq = []
+    for i in range(len(sequence)-1, -1, -1):
+        rc_seq.append( RC_Map[ sequence[i] ] )
+    rc_seq = ''.join(rc_seq)
+    
+    return rc_seq
 
 def flat_seq(sequence, lineLen=60):
     """
@@ -144,3 +160,50 @@ def lift_genome(lifter, chrID, chrStart, chrEnd, chrStrand, verbose=False):
     
     return (s_chrID, s_chrPos, e_chrPos, s_chrStrand)
 
+def search_subseq_from_genome(Seqer, chrID, start, end, strand, pattern, caller='first', check=False):
+    """
+    Parameters:
+        Seqer: Object of Seq.seqClass()
+        chrID: Chromosome ID
+        start, end: The genome start pos and end pos. [start, end)
+        strand: + or -
+        pattern: Sequence or regex
+        caller: first, all or callable
+                first will return the first result, 
+                all will return all result,
+                callable function will be called
+                    caller(sequence, pattern) must return [ [start, end], [start, end], ... ] or [] if no result
+        check: bool. Check the result
+    Return:
+        if caller is callable or all: [ [genome_start, genome_end], ... ]
+        if caller is first: [genome_start, genome_end]
+    """
+    import re
+    
+    subseq = Seqer.fetch(chrID, start, end, strand)
+    if callable(caller):
+        hits = caller(subseq, pattern)
+    elif isinstance(caller, str):
+        hits = list(re.finditer( pattern,  subseq ))
+        if len(hits)>0:
+            hits = [ hit.span() for hit in hits ]
+    else:
+        raise RuntimeError("caller must be first, all or callable")
+    
+    if strand == '+':
+        hits = [ (start+hit[0], start+hit[1]) for hit in hits ]
+    else:
+        hits = [ (end-hit[0]-(hit[1]-hit[0]), end-hit[0]) for hit in hits ]
+    
+    if check:
+        if len(hits)>0:
+            print(f"Check {chrID}:{start}-{end}({strand}) {pattern}")
+        for hit in hits:
+            new_subseq = Seqer.fetch(chrID, hit[0], hit[1], strand)
+            pass_ = not (re.match(pattern, new_subseq) is None)
+            print(f"{new_subseq} pass {pass_}")
+    
+    if caller == 'first':
+        hits = hits[0]
+    
+    return hits

@@ -1,6 +1,6 @@
 #-*- coding:utf-8 -*-
 
-import os, sys, subprocess, random, time, re
+import os, sys, subprocess, random, time, re, Colors
 
 if 'getstatusoutput' in dir(subprocess):
     from subprocess import getstatusoutput
@@ -594,7 +594,7 @@ def estimate_energy(sequence, dot, shape_list=[], simple=True, si=-0.6, sm=1.8, 
     
     return energy
 
-def partition(sequence, shape_list=[], bp_constraint=[], clean=True, si=-0.6, sm=1.8, md=None, verbose=False):
+def partition(sequence, shape_list=[], bp_constraint=[], clean=True, si=-0.6, sm=1.8, md=None, return_pfs=False, verbose=False):
     """
     sequence                -- Raw sequence
     shape_list              -- A list of SHAPE scores
@@ -603,9 +603,14 @@ def partition(sequence, shape_list=[], bp_constraint=[], clean=True, si=-0.6, sm
     si                      -- Intercept
     sm                      -- Slope
     md                      -- Maximum pairing distance between nucleotides.
+    return_pfs              -- Copy a new pfs file and return the path
     verbose                 -- Print command
     
     Estimate partition function using partition or partition-smp
+    
+    Return: 
+        if return_pfs=False: [ (133, 149, 3.241e-05),... ]
+        if return_pfs=True: [ (133, 149, 3.241e-05),... ], pfs_file_path
     
     Require: partition or partition-smp, ProbabilityPlot
     """
@@ -660,11 +665,206 @@ def partition(sequence, shape_list=[], bp_constraint=[], clean=True, si=-0.6, sm
             nc1,nc2,log10Prob = line.strip().split()
             pairingProb.append( (int(nc1),int(nc2),10**(-float(log10Prob))) )
     
+    if return_pfs:
+        new_pfs = os.path.join("/tmp/", f"{randID}.pfs")
+        pfs_file = ROOT + "output.pfs"
+        shutil.copyfile(pfs_file, new_pfs)
+    
     # clean
     if clean:
         shutil.rmtree(ROOT)
     
-    return pairingProb
+    if return_pfs:
+        return pairingProb, new_pfs
+    else:
+        return pairingProb
+
+def maxExpect(input_pfs_file=None, input_sequence=None, percent=50, structures=1000, window=5, clean=True, verbose=False, delete_pfs=False):
+    """
+    input_pfs_file          -- Input file is a pfs file (Cannot be specified together with input_sequence)
+    input_sequence          -- Input is RNA sequence (Cannot be specified together with input_pfs_file)
+    percent                 -- Specify a maximum percent difference in folding free energy 
+                               change in suboptimal structures. Note that suboptimal structures 
+                               are generated until either the maximum percent free energy difference 
+                               is reached or until the maximum number of structures is reached (below).
+    structures              -- Specify a maximum number of structures. Note that suboptimal structures 
+                               are generated until either the maximum number of structures are reached 
+                               or the maximum percent difference is reached (above).
+    window                  -- Specify a window size. Smaller windows (down to zero) will result in a 
+                               larger set of structures that are similar. Larger windows result in fewer 
+                               structures that are more different in predicted pairs.
+    clean                   -- Delete all tmp files
+    verbose                 -- Print command
+    delete_pfs              -- Delete the pfs file after finished
+    """
+    import tempfile
+    import shutil
+    import General
+    
+    MaxExpect = General.require_exec("MaxExpect", exception=False)
+    
+    randID = random.randint(1000000,9000000)
+    temproot = os.path.join(tempfile.gettempdir(), "MaxExpect_"+str(randID))
+    
+    if input_pfs_file is None and input_sequence is None:
+        print( Colors.f("Error: input_pfs_file or input_sequence should be specified", fc='red') )
+        return -1
+    elif input_pfs_file is not None and input_sequence is not None:
+        print( Colors.f("Error: input_pfs_file and input_sequence cannot be specified together", fc='red') )
+        return -1
+    
+    os.mkdir(temproot)
+    fa_file = os.path.join(temproot, "input.fa")
+    ct_file = os.path.join(temproot, "output.ct")
+    
+    if input_pfs_file is None:
+        __build_single_seq_fasta(input_sequence, fa_file)
+        input_file = fa_file
+    else:
+        input_file = input_pfs_file
+        if not os.path.exists(input_file):
+            print( Colors.f("Error: input_pfs_file does not exist", fc='red') )
+            shutil.rmtree(temproot)
+            return -1
+    
+    maxexpect_CMD = MaxExpect + " %s %s --percent %s --structures %s --window %s" % (input_file, ct_file, percent, structures, window)
+    if input_pfs_file is None:
+        maxexpect_CMD += " --sequence"
+    maxexpect_CMD += ' > /dev/null'
+    
+    if verbose: 
+        print(maxexpect_CMD)
+    os.system(maxexpect_CMD)
+    
+    dict_content = General.load_ct(ct_file, load_all=True)
+    if len(dict_content)>0:
+        Len = len(dict_content[1][0])
+        ct_list = [ dict_content[key][1] for key in dict_content ]
+        dot_list = [ ct2dot(ct, Len) for ct in ct_list ]
+    else:
+        dot_list = []
+    
+    # clean
+    if clean:
+        shutil.rmtree(temproot)
+    
+    if delete_pfs and input_pfs_file is not None:
+        os.remove(input_pfs_file)
+    
+    return dot_list
+
+############################################
+#######    Structure Evaluate
+############################################
+
+def evaluate_dot(pred_dot, target_dot):
+    """
+    pred_dot                -- Predicted dot-bracket structure
+    target_dot              -- Target dot-bracket structure
+    
+    Return {
+        'common_bp': Int,
+        'pred_bp': Int,
+        'target_bp': Int,
+        'Sensitivity': Double,
+        'PPV': Double
+    }
+    """
+    assert len(pred_dot)==len(target_dot), "pred_dot and target_dot should be same length"
+    
+    pred_ct = dot2ct(pred_dot)
+    target_ct = dot2ct(target_dot)
+    i, j = 0, 0
+    same_bp = 0
+    while i<len(pred_ct) and j<len(target_ct):
+        if pred_ct[i]<target_ct[j]:
+            i += 1
+        elif pred_ct[i]>target_ct[j]:
+            j += 1
+        else:
+            i += 1
+            j += 1
+            same_bp += 1
+    return {
+        'common_bp': same_bp,
+        'pred_bp': len(pred_ct),
+        'target_bp': len(target_ct),
+        'Sensitivity': round(same_bp/len(target_ct),3),
+        'PPV': round(same_bp/len(pred_ct),3)
+    }
+
+def calc_structure_similarity(seqdot1, seqdot2, pm=10, pd=-5, bm=1, br=0, bd=-10, mode='score', verbose=False):
+    """
+    seqdot1                 -- [seq, dot]
+    seqdot2                 -- [seq, dot]
+    pm                      -- basepair(bond) match score
+    pd                      -- basepair bond indel score
+    bm                      -- base match score
+    br                      -- base mismatch score
+    bd                      -- base indel score
+    mode                    -- score,distance,similarity,fasta
+                               score: Get relative score (0-1)
+                               distance: Get distance
+                               similarity: Get similary
+                               fasta: Get alignment fasta
+    verbose                 -- Print command
+    
+    Require: RNAforester
+    
+    Return: Float if mode='score'
+            Int if mode='distance' or 'similarity'
+            [aligned_seq1, aligned_seq2], [aligned_dot1, aligned_dot2] if mode='fasta'
+    """
+    import tempfile, General, os
+    RNAforester = General.require_exec("RNAforester", exception=True)
+    
+    if mode not in ('score','distance','similarity','fasta'):
+        raise RuntimeError("mode should be one of score,distance,similarity,fasta")
+    
+    randName = "RNAforester_" + str(random.randint(1000000,9000000))
+    input_dot_fn = os.path.join(tempfile.tempdir, randName+".dot")
+    output_fn = os.path.join(tempfile.tempdir, randName+".out")
+    
+    General.write_dot({'input1': seqdot1, 'input2': seqdot2}, input_dot_fn)
+    
+    cmd = f"RNAforester -f {input_dot_fn} -pm={pm} -pd={pd} -bm={bm} -br={br} -bd={bd} "
+    if mode != 'fasta':
+        cmd += '--score '
+        if mode == 'score':
+            cmd += '-r '
+        elif mode == 'distance':
+            cmd += '-d '
+        elif mode == 'similarity':
+            pass
+    else:
+        cmd += '--fasta '
+    
+    cmd += f"> {output_fn}"
+    if verbose:
+        print(cmd)
+    
+    os.system(cmd)
+    
+    return_value = None
+    if mode == 'score':
+        return_value = float(open(output_fn).readlines()[1].strip())
+    elif mode == 'distance' or mode == 'similarity':
+        return_value = float(open(output_fn).readlines()[0].strip())
+    else:
+        IN = open(output_fn)
+        line = IN.readline()
+        while line:
+            if line.startswith('input1'):
+                seq1, dot1 = IN.readline().rstrip(), IN.readline().rstrip()
+                IN.readline()
+                seq2, dot2 = IN.readline().rstrip(), IN.readline().rstrip()
+                return_value = [(seq1.upper(), seq2.upper()),(dot1, dot2)]
+                break
+            line = IN.readline()
+    
+    os.remove(input_dot_fn)
+    os.remove(output_fn)
+    return return_value
 
 ############################################
 #######    Format conversion
@@ -981,9 +1181,10 @@ def find_stem(dot, max_stem_gap=3, min_stem_len=5):
         else:
             le = pair[0]
             rs = pair[1]
-    if le-ls+1 >= min_stem_len and re-rs+1>=min_stem_len:
+    if le-ls+1>=min_stem_len and re-rs+1>=min_stem_len:
         vs.append( (ls, le, rs, re) )
     return vs
+
 
 def trim_stem(dot, stem, min_fix_stem_len=2):
     """
@@ -1806,4 +2007,438 @@ def dot_F1(pred_dot, true_dot, shift=1):
     
     F1 = 2*TP/(2*TP+FP+FN)
     
-    return F1
+    return F
+
+############################################
+#######    Structure Parse
+############################################
+
+def In(item, sorted_list):
+    import General
+    if len(sorted_list)<5:
+        return item in sorted_list
+    else:
+        return General.bi_search(item, sorted_list)
+
+def __collect_mutiloop_bases(multi_close_bp, bpMap, paired_bases, multiloop_bases):
+    """
+    This is a subfunction called by parse_structure
+    """
+    i = multi_close_bp[0]+1
+    j = multi_close_bp[1]-1
+    while i<=j:
+        while not In(i, paired_bases) and i<=j:
+            multiloop_bases.append(i)
+            i += 1
+        while not In(j, paired_bases) and i<=j:
+            multiloop_bases.append(j)
+            j -= 1
+        if i<=j:
+            i = bpMap[i]+1
+            j = bpMap[j]-1
+
+def parse_structure(dot):
+    """
+    Given a dot-bracket structure, parse structure into all kinds of single-stranded bases and paired bases
+    
+    dot                     -- Dot-bracket structure
+    
+    Return a StructureInfo object
+    """
+    Len = len(dot)
+    ctList = sorted(dot2ct(dot),key=lambda x: x[0])
+    bpMap = dot2bpmap(dot)
+    
+    pseudoknot_list = parse_pseudoknot(ctList)
+    pseudoknot_bps = []
+    for pseudoknot_ctList in pseudoknot_list:
+        for bp in pseudoknot_ctList:
+            del bpMap[bp[0]]
+            del bpMap[bp[1]]
+            ctList.remove(bp)
+            pseudoknot_bps.append(bp)
+    pseudoknot_bps.sort(key=lambda x: x[0])
+    
+    paired_bases = sorted([i[0] for i in ctList]+[i[1] for i in ctList])
+    pseudoknot_bases = sorted([i[0] for i in pseudoknot_bps]+[i[1] for i in pseudoknot_bps])
+    
+    ## single bases
+    linking_bases = []
+    dangling_bases = []
+    multiloop_bases = []
+    bulge_bases = []
+    interior_bases = []
+    hairpin_bases = []
+    
+    ## paired bases
+    stacking_middle = []
+    stacking_closing = []
+    mutiloop_closing = []
+    hairpin_closing = []
+    interior_closing = []
+    
+    for i in range(1,paired_bases[0]):
+        dangling_bases.append(i)
+    
+    for i in range(paired_bases[-1]+1, Len+1):
+        dangling_bases.append(i)
+    
+    il,ir = 0,0
+    for bp in ctList:
+        if il == 0:
+            il,ir = bp[0],bp[1]
+        elif bp[0]>ir:
+            for i in range(ir+1,bp[0]):
+                linking_bases.append(i)
+            il,ir = bp[0],bp[1]
+        if In((bp[0]+1,bp[1]-1), ctList):
+            if not In((bp[0]-1,bp[1]+1), ctList):
+                stacking_closing.append( bp )
+            else:
+                stacking_middle.append( bp )
+        else:
+            i = bp[0]+1
+            j = bp[1]-1
+            while not In(i, paired_bases):# i not in paired_bases:
+                i += 1
+            while not In(j, paired_bases): #j not in paired_bases:
+                j -= 1
+            if i>j:
+                assert i==bp[1]
+                assert j==bp[0]
+                hairpin_closing.append(bp)
+                for ii in range(bp[0]+1,bp[1]):
+                    hairpin_bases.append(ii)
+            elif In((i,j), ctList):
+                interior_closing.append(bp)
+                if bp[0]+1==i or bp[1]-1==j:
+                    is_bulge = True
+                else:
+                    is_bulge = False
+                for ii in range(bp[0]+1,i):
+                    if is_bulge:
+                        bulge_bases.append(ii)
+                    else:
+                        interior_bases.append(ii)
+                for ii in range(j+1,bp[1]):
+                    if is_bulge:
+                        bulge_bases.append(ii)
+                    else:
+                        interior_bases.append(ii)
+            else:
+                mutiloop_closing.append(bp)
+                __collect_mutiloop_bases(bp, bpMap, paired_bases, multiloop_bases)
+    
+    linking_bases.sort()
+    dangling_bases.sort()
+    multiloop_bases.sort()
+    bulge_bases.sort()
+    interior_bases.sort()
+    hairpin_bases.sort()
+    stacking_middle.sort(key=lambda x: x[0])
+    stacking_closing.sort(key=lambda x: x[0])
+    mutiloop_closing.sort(key=lambda x: x[0])
+    hairpin_closing.sort(key=lambda x: x[0])
+    interior_closing.sort(key=lambda x: x[0])
+    
+    for pseudoknot_base in pseudoknot_bases:
+        if In(pseudoknot_base, linking_bases):
+            linking_bases.remove(pseudoknot_base)
+        elif In(pseudoknot_base, dangling_bases):
+            dangling_bases.remove(pseudoknot_base)
+        elif In(pseudoknot_base, multiloop_bases):
+            multiloop_bases.remove(pseudoknot_base)
+        elif In(pseudoknot_base, bulge_bases):
+            bulge_bases.remove(pseudoknot_base)
+        elif In(pseudoknot_base, interior_bases):
+            interior_bases.remove(pseudoknot_base)
+        elif In(pseudoknot_base, hairpin_bases):
+            hairpin_bases.remove(pseudoknot_base)
+    
+    strinfo = StructureInfo(dot)
+    strinfo.linking_bases = linking_bases
+    strinfo.dangling_bases = dangling_bases
+    strinfo.multiloop_bases = multiloop_bases
+    strinfo.bulge_bases = bulge_bases
+    strinfo.interior_bases = interior_bases
+    strinfo.hairpin_bases = hairpin_bases
+    
+    strinfo.stacking_middle = stacking_middle
+    strinfo.stacking_closing = stacking_closing
+    strinfo.mutiloop_closing = mutiloop_closing
+    strinfo.hairpin_closing = hairpin_closing
+    strinfo.interior_closing = interior_closing
+    strinfo.pseudoknot_bps = pseudoknot_bps
+    
+    return strinfo
+
+class StructureInfo(object):
+    def __init__(self, dot):
+        self.dot = dot
+        
+        self.linking_bases = []
+        self.dangling_bases = []
+        self.multiloop_bases = []
+        self.bulge_bases = []
+        self.interior_bases = []
+        self.hairpin_bases = []
+        
+        self.stacking_middle = []
+        self.stacking_closing = []
+        self.mutiloop_closing = []
+        self.hairpin_closing = []
+        self.interior_closing = []
+        
+        self.pseudoknot_bps = []
+    
+    def check(self, verbose=True):
+        Len = len(self.dot)
+        ctList = sorted(dot2ct(self.dot),key=lambda x: x[0])
+        paired_bases = sorted([i[0] for i in ctList]+[i[1] for i in ctList])
+        added_ctList = self.stacking_middle+self.stacking_closing+self.mutiloop_closing+\
+            self.hairpin_closing+self.interior_closing+self.pseudoknot_bps
+        added_ctList.sort(key=lambda x: x[0])
+        if ctList != added_ctList:
+            if verbose:
+                print(Colors.f("Error: different paired bases", 'red'))
+                print("recognized:",added_ctList,sep="\n")
+                print("inDot:",ctList,sep="\n")
+            return False
+        single_bases = list(set(range(1,Len+1))-set(paired_bases))
+        added_single = self.linking_bases+self.dangling_bases+self.multiloop_bases+self.bulge_bases+self.interior_bases+self.hairpin_bases
+        added_single.sort()
+        single_bases.sort()
+        if added_single != single_bases:
+            if verbose:
+                print(Colors.f("Error: different single bases", 'red'))
+                print("recognized:",added_single,sep="\n")
+                print("inDot:",single_bases,sep="\n")
+            return False
+        if verbose: print(Colors.f("Success", 'green'))
+        return True
+    
+    def sort(self):
+        self.linking_bases.sort()
+        self.dangling_bases.sort()
+        self.multiloop_bases.sort()
+        self.bulge_bases.sort()
+        self.interior_bases.sort()
+        self.hairpin_bases.sort()
+        self.stacking_middle.sort(key=lambda x: x[0])
+        self.stacking_closing.sort(key=lambda x: x[0])
+        self.mutiloop_closing.sort(key=lambda x: x[0])
+        self.hairpin_closing.sort(key=lambda x: x[0])
+        self.interior_closing.sort(key=lambda x: x[0])
+    
+    def print(self):
+        print(Colors.f("double-stranded bases:",'yellow'))
+        print("linking_bases:", self.linking_bases)
+        print("dangling_bases:", self.dangling_bases)
+        print("multiloop_bases:", self.multiloop_bases)
+        print("bulge_bases:", self.bulge_bases)
+        print("interior_bases:", self.interior_bases)
+        print("hairpin_bases:", self.hairpin_bases)
+        print(Colors.f("single-stranded bases:",'yellow'))
+        print("stacking_middle:", self.stacking_middle)
+        print("stacking_closing:", self.stacking_closing)
+        print("mutiloop_closing:", self.mutiloop_closing)
+        print("hairpin_closing:", self.hairpin_closing)
+        print("interior_closing:", self.interior_closing)
+        print("pseudoknot_bps:", self.pseudoknot_bps)
+    
+    def remove_bp(self, bp):
+        if bp in self.stacking_middle:
+            self.stacking_middle.remove(bp)
+        elif bp in self.stacking_closing:
+            self.stacking_closing.remove(bp)
+        elif bp in self.mutiloop_closing:
+            self.mutiloop_closing.remove(bp)
+        elif bp in self.hairpin_closing:
+            self.hairpin_closing.remove(bp)
+        elif bp in self.interior_closing:
+            self.interior_closing.remove(bp)
+        elif bp in self.pseudoknot_bps:
+            self.pseudoknot_bps.remove(bp)
+        else:
+            raise RuntimeError("(%d,%d) is not a base pairs"%(bp[0], bp[1]))
+
+def refine_structure_interior(strinfo, seq, verbose=False):
+    """
+    Check and make some some canonical base pairs in interior loops paired
+    
+    strinfo                     -- An object of StructureInfo
+    seq                         -- Sequence str
+    verbose                     -- Print information
+    
+    Return: if refined, return True; else return False
+    """
+    
+    refined = False
+    seq = seq.replace('T', 'U')
+    dot_list = list(strinfo.dot)
+    
+    pseudoknot_bases = [i[0] for i in strinfo.pseudoknot_bps]+[i[1] for i in strinfo.pseudoknot_bps]
+    
+    ## 1. interior bases
+    for bp in strinfo.interior_closing[:]:
+        if bp[0]+1 in strinfo.interior_bases:
+            # interior loop
+            i = bp[0]+1
+            j = bp[1]-1
+            while i in strinfo.interior_bases:
+                i += 1
+            while j in strinfo.interior_bases:
+                j -= 1
+            old_interior_closing = bp
+            old_stacking_closing = (i, j)
+            if i in pseudoknot_bases or j in pseudoknot_bases:
+                continue
+            #if old_stacking_closing not in strinfo.stacking_closing and old_stacking_closing not in strinfo.interior_closing:
+            #    if verbose: print("(%d,%d) is not in stacking_closing and interior_closing."%(i,j))
+            #    if i in pseudoknot_bases or j in pseudoknot_bases:
+            #        if verbose: print("One of them in pseudoknot")
+            #        continue
+            i,j = i-1,j+1
+            while i!=old_interior_closing[0] and j!=old_interior_closing[1] and seq[i-1]+seq[j-1] in ('AU','UA','CG','GC','UG','GU'):
+                if verbose:
+                    print("interior close (%d,%d) => %s" % (i,j,seq[i-1]+seq[j-1]))
+                refined = True
+                dot_list[i-1] = "("; dot_list[j-1] = ")"
+                strinfo.remove_bp(old_stacking_closing)
+                #if old_stacking_closing in strinfo.stacking_closing:
+                #    strinfo.stacking_closing.remove(old_stacking_closing)
+                #else:
+                #    strinfo.interior_closing.remove(old_stacking_closing)
+                strinfo.stacking_middle.append(old_stacking_closing)
+                strinfo.stacking_closing.append((i,j))
+                strinfo.interior_bases.remove(i)
+                strinfo.interior_bases.remove(j)
+                old_stacking_closing = (i,j)
+                i -= 1; j += 1
+            i,j = old_interior_closing[0]+1, old_interior_closing[1]-1
+            while i!=old_stacking_closing[0] and j!=old_stacking_closing[1] and seq[i-1]+seq[j-1] in ('AU','UA','CG','GC','UG','GU'):
+                #print(2,i,j,old_interior_closing,seq[i-1]+seq[j-1])
+                refined = True
+                dot_list[i-1] = "("; dot_list[j-1] = ")"
+                strinfo.remove_bp(old_interior_closing)
+                #strinfo.interior_closing.remove(old_interior_closing)
+                strinfo.stacking_middle.append(old_interior_closing)
+                strinfo.interior_closing.append((i,j))
+                strinfo.interior_bases.remove(i)
+                strinfo.interior_bases.remove(j)
+                old_interior_closing = (i,j)
+                i += 1; j -= 1
+            if old_interior_closing[0]+1==old_stacking_closing[0] and old_interior_closing[1]-1==old_stacking_closing[1]:
+                #print("combine")
+                strinfo.remove_bp(old_interior_closing)
+                #strinfo.interior_closing.remove(old_interior_closing)
+                strinfo.remove_bp(old_stacking_closing)
+                #if old_stacking_closing in strinfo.stacking_closing:
+                #    strinfo.stacking_closing.remove(old_stacking_closing)
+                #else:
+                #    strinfo.interior_closing.remove(old_stacking_closing)
+                strinfo.stacking_middle.append(old_interior_closing)
+                strinfo.stacking_middle.append(old_stacking_closing)
+            elif old_interior_closing[0]+1==old_stacking_closing[0]:
+                for i in range(old_stacking_closing[1]+1, old_interior_closing[1]):
+                    strinfo.interior_bases.remove(i)
+                    strinfo.bulge_bases.append(i)
+            elif old_interior_closing[1]-1==old_stacking_closing[1]:
+                for i in range(old_interior_closing[0]+1, old_stacking_closing[0]):
+                    strinfo.interior_bases.remove(i)
+                    strinfo.bulge_bases.append(i)
+    
+    strinfo.dot = "".join(dot_list)
+    strinfo.sort()
+    
+    return refined
+
+def refine_structure_stackingclosing(strinfo, seq, verbose=False):
+    """
+    Check and make some some canonical base pairs in stacking end paired
+    
+    strinfo                     -- An object of StructureInfo
+    seq                         -- Sequence str
+    verbose                     -- Print information
+    
+    Return: if refined, return True; else return False
+    """
+    
+    refined = False
+    seq = seq.replace('T', 'U')
+    dot_list = list(strinfo.dot)
+    for bp in strinfo.stacking_closing[:]:
+        i,j = bp[0]-1,bp[1]+1
+        while i>=0 and j<len(seq) and seq[i-1]+seq[j-1] in ('AU','UA','CG','GC','UG','GU'):
+            if strinfo.dot[i-1]+strinfo.dot[j-1] != '..':
+                ## pseudoknot
+                break
+            ilink = In(i,strinfo.linking_bases)
+            idangle = In(i,strinfo.dangling_bases)
+            jlink = In(j,strinfo.linking_bases)
+            jdangle = In(j,strinfo.dangling_bases)
+            if (ilink or idangle) and (jlink or jdangle):
+                if verbose:
+                    print("stacking close (%d,%d) => %s" % (i,j,seq[i-1]+seq[j-1]))
+                refined = True
+                
+                strinfo.stacking_closing.remove((i+1,j-1))
+                strinfo.stacking_middle.append((i+1,j-1))
+                strinfo.stacking_closing.append((i,j))
+                if ilink:
+                    strinfo.linking_bases.remove(i)
+                else:
+                    strinfo.dangling_bases.remove(i)
+                if jlink:
+                    strinfo.linking_bases.remove(j)
+                else:
+                    strinfo.dangling_bases.remove(j)
+                dot_list[i-1] = '('
+                dot_list[j-1] = ')'
+                i -= 1; j += 1
+            else:
+                break
+    
+    strinfo.dot = "".join(dot_list)
+    strinfo.sort()
+    
+    return refined
+
+def refine_structure_hairpinclosing(strinfo, seq, verbose=False):
+    """
+    Check and make some some canonical base pairs in hairpin paired
+    
+    strinfo                     -- An object of StructureInfo
+    seq                         -- Sequence str
+    verbose                     -- Print information
+    
+    Return: if refined, return True; else return False
+    """
+    
+    refined = False
+    seq = seq.replace('T', 'U')
+    dot_list = list(strinfo.dot)
+    for bp in strinfo.hairpin_closing[:]:
+        i,j = bp[0]+1,bp[1]-1
+        if strinfo.dot[i-1:j].count('.')!=j-i+1:
+            ## have psuedoknot
+            if verbose: print("psuedoknot:", strinfo.dot[i-1:j])
+            continue
+        while seq[i-1]+seq[j-1] in ('AU','UA','CG','GC','UG','GU') and j-i>=6:
+            if verbose:
+                print("hairpin close (%d,%d) => %s" % (i,j,seq[i-1]+seq[j-1]))
+            refined = True
+            strinfo.hairpin_closing.remove((i-1,j+1))
+            strinfo.stacking_middle.append((i-1,j+1))
+            strinfo.hairpin_closing.append((i,j))
+            strinfo.hairpin_bases.remove(i)
+            strinfo.hairpin_bases.remove(j)
+            dot_list[i-1] = '('
+            dot_list[j-1] = ')'
+            i += 1; j -= 1
+    
+    strinfo.dot = "".join(dot_list)
+    strinfo.sort()
+    
+    return refined
+

@@ -33,7 +33,7 @@ class BlastNHit(object):
             self.subject_id, self.subject_start, self.subject_end, self.strand, \
             self.identity)
 
-def blast_seq(query_seq, blastdb, clear=True, verbose=False, perc_identity=90, threads=1):
+def blast_seq(query_seq, blastdb, clear=True, verbose=False, perc_identity=90, evalue=10, maxhit=500, threads=1):
     """
     Blastn a sequence or sequences and return a list of BlastNHit
     
@@ -42,6 +42,8 @@ def blast_seq(query_seq, blastdb, clear=True, verbose=False, perc_identity=90, t
     clear                   -- Clear tempropary files
     verbose                 -- Output command
     perc_identity           -- Minimum percentage of identity
+    evalue                  -- Maximun evalue
+    maxhit                  -- Maximum number of aligned sequences to keep
     threads                 -- How many threads to use
     
     Return: [ BlastNHit, BlastNHit,... ]
@@ -63,7 +65,7 @@ def blast_seq(query_seq, blastdb, clear=True, verbose=False, perc_identity=90, t
         General.write_fasta({"query_id":query_seq}, seq_fa_file)
     else:
         General.write_fasta(query_seq, seq_fa_file)
-    cmd = "%s -db %s -query %s -out %s -outfmt 7 -num_threads %d -perc_identity %d" % (blastn, blastdb, seq_fa_file, result_file, threads, perc_identity)
+    cmd = f"{blastn} -db {blastdb} -query {seq_fa_file} -out {result_file} -outfmt 7 -num_threads {threads} -perc_identity {perc_identity} -evalue {evalue} -max_target_seqs {maxhit}"
     
     if verbose:
         print(cmd)
@@ -160,4 +162,88 @@ def annotate_seq(Fasta, genome_blastn_db, Gaper, verbose=True, threads=10):
         id_map[qid] = annot_name
     
     return id_map, unmapped_ids, unannot_ids
+
+class AlignedFasta(object):
+    def __init__(self, afa_fn, gap_sym="-", verbose=1):
+        self.gap_sym = gap_sym
+        self.fasta_dict = General.load_fasta(afa_fn)
+        self.seq_keys = list(self.fasta_dict.keys())
+        if self._check_seq_num() is False:
+            raise RuntimeError("Sequence counte should > 1")
+        if self._check_len() is False:
+            raise RuntimeError("Sequences in file should have same length")
+        self.alignLen = len(self.fasta_dict[self.seq_keys[0]])
+        if verbose:
+            print(f"Total {len(self.seq_keys)} sequences, aligned length: {self.alignLen}")
+    
+    def _check_seq_num(self):
+        if len(self.seq_keys) <= 1:
+            return False
+        return True
+    
+    def _check_len(self):
+        len_list = [ len(v) for v in self.fasta_dict.values() ]
+        if len(set(len_list))!=1:
+            return False
+        return True
+    
+    def alignPos2seqPos(self, alignPos, seqID):
+        """
+        Covert the global aligned position to sequence position
+        alignPos                -- Position of alignment. 1-Base
+        seqID                   -- Sequence ID
+        
+        Return:
+            Sequence position. 1-Based
+        """
+        assert 1<=alignPos<=self.alignLen
+        assert seqID in self.seq_keys
+        pos = 0
+        while alignPos != 0:
+            if self.fasta_dict[seqID][alignPos-1]!=self.gap_sym:
+                pos += 1
+            alignPos -= 1
+        return pos
+    
+    def seqPos2alignPos(self, seqPos, seqID):
+        """
+        Covert the sequence position to global aligned position
+        seqPos                  -- Sequence position. 1-Based
+        seqID                   -- Sequence ID
+        
+        Return:
+            Position of alignment. 1-Base
+        """
+        assert 1<=seqPos<=self.alignLen
+        assert seqID in self.seq_keys
+        pos = 0
+        while seqPos != 0:
+            pos += 1
+            if self.fasta_dict[seqID][pos-1]!=self.gap_sym:
+                seqPos -= 1
+        return pos
+    
+    def seqPos2seqPos(self, seqPos, querySeqID, targetSeqID):
+        """
+        Covert the sequence position to global aligned position
+        seqPos                -- Sequence position. 1-Based
+        querySeqID            -- Query Sequence ID
+        targetSeqID           -- Target Sequence ID
+        
+        Return:
+            Position of alignment. 1-Base
+        """
+        alignPos = self.seqPos2alignPos(seqPos, querySeqID)
+        targetSeqPos = self.alignPos2seqPos(alignPos, targetSeqID)
+        return targetSeqPos
+    
+    def cleanFasta(self, seqID):
+        """
+        Return sequence without gap
+        """
+        assert seqID in self.seq_keys
+        return self.fasta_dict[seqID].replace(self.gap_sym, "")
+    
+    def cleanFastaDict(self):
+        return { seqID:self.cleanFasta(seqID) for seqID in self.seq_keys}
 

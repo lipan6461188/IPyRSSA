@@ -3,7 +3,7 @@
 IPyRSSA (<b>I</b>ntegrative <b>Py</b>thon library for <b>R</b>NA <b>S</b>econdary <b>S</b>tructure <b>A</b>nalysis) is a set of Python library to analyze RNA secondary structure and SHAPE data.
 
 #### New
-Python 3 is supported now.
+Python 3 is supported now. Python 2 is not supported.
 
 #### Update your local library
 
@@ -81,7 +81,12 @@ Python 3 is supported now.
 	<td> calc_AUC_v2 </td>
 	<td> Calculate AUC with dot and shape_list </td>
 </tr>
+<tr>
+	<td> seq_entropy </td>
+	<td> Calculate the entropy of the sequence. </td>
+</tr>
 </table>
+
 
 <h3> Colors module </h3>
 `import Colors`
@@ -183,7 +188,12 @@ Prerequisites: pyliftover, pysam
 	<td> lift_genome </td>
 	<td> Convert the genome version (hg19=>hg38) </td>
 </tr>
+<tr>
+	<td> search_subseq_from_genome </td>
+	<td> Search a pattern in genome region </td>
+</tr>
 </table>
+
 
 <h3> Structure module </h3>
 `import Structure`
@@ -220,6 +230,18 @@ Prerequisites: pyliftover, pysam
 <tr>
 	<td> partition </td>
 	<td> Calculate the partition function </td>
+</tr>
+<tr>
+	<td> maxExpect </td>
+	<td> Calculate the max-expect structure </td>
+</tr>
+<tr>
+	<td> evaluate_dot </td>
+	<td> Evaluate the Sensitivty and PPV for a predicted structure relative to target structure </td>
+</tr>
+<tr>
+	<td> calc_structure_similarity </td>
+	<td> Calculate the structure similarity,distance </td>
 </tr>
 <tr>
 	<td> dot2ct </td>
@@ -305,7 +327,24 @@ Prerequisites: pyliftover, pysam
 	<td> dot_F1 </td>
 	<td> Compare predicted structure and true structure and calculate the F1 score </td>
 </tr>
+<tr>
+	<td> parse_structure </td>
+	<td> Given a dot-bracket structure, parse structure into all kinds of single-stranded bases and paired bases </td>
+</tr>
+<tr>
+	<td> refine_structure_interior </td>
+	<td> Check and make some some canonical base pairs in interior loops paired </td>
+</tr>
+<tr>
+	<td> refine_structure_stackingclosing </td>
+	<td> Check and make some some canonical base pairs in stacking end paired </td>
+</tr>
+<tr>
+	<td> refine_structure_hairpinclosing </td>
+	<td> Check and make some some canonical base pairs in hairpin paired </td>
+</tr>
 </table>
+
 
 <h3> Visual module </h3>
 `import Visual`
@@ -340,7 +379,6 @@ Prerequisites: java, VARNA (http://varna.lri.fr)
 </table>
 
 <h3> Rosetta module </h3> 
-
 `from D3 import Rosetta `
 
 Prerequisites: ROSETTA, it can be only run in cluster
@@ -357,7 +395,6 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </table>
 
 <h3> MCSym module </h3> 
-
 `from D3 import MCSym `
 
 <table width="100%">
@@ -388,7 +425,6 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </table>
 
 <h3> HDOCK module </h3> 
-
 `from D3 import HDOCK`
 
 <table width="100%">
@@ -419,7 +455,6 @@ Prerequisites: ROSETTA, it can be only run in cluster
 </table>
 
 <h3> Figures module </h3>
-
 `import Figures`
 
 <table width="100%">
@@ -443,7 +478,12 @@ Prerequisites: ROSETTA, it can be only run in cluster
 	<td> boxPlot </td>
 	<td> Plot a box figure </td>
 </tr>
+<tr>
+	<td> cdf </td>
+	<td> Plot a CDF curve </td>
+</tr>
 </table>
+
 
 ### GPU module
 
@@ -484,5 +524,68 @@ Prerequisites: ROSETTA, it can be only run in cluster
 <tr>
 	<td> annotate_seq </td>
 	<td> Given a sequence and blastdb, search and annotate the sequence </td>
+</tr>
+</table>
+
+### Covariation
+
+`import Covariation`
+
+<table width="100%">
+<tr>
+	<th width="20%"> Function name </th>
+	<th> Usage </th>
+</tr>
+<tr>
+	<td> dot2sto </td>
+	<td> Covert dot to stockholm file </td>
+</tr>
+<tr>
+	<td> cmbuild </td>
+	<td> Create .cm file with stockholm alignment </td>
+</tr>
+<tr>
+	<td> cmcalibrate </td>
+	<td> Calibrate a .cm file </td>
+</tr>
+<tr>
+	<td> cmsearch </td>
+	<td> Call cmsearch programe to search aligned sequence agaist cm model </td>
+</tr>
+<tr>
+	<td> R_scape </td>
+	<td> Call R-scape to call covariation base pairs </td>
+</tr>
+<tr>
+	<td> read_RScape_result </td>
+	<td> Read the R-scape result </td>
+</tr>
+<tr>
+	<td> get_alignedPos2cleanPos_dict </td>
+	<td> Get a distionary {align_pos: raw_pos} </td>
+</tr>
+<tr>
+	<td> call_covariation </td>
+	<td> Give sequence and dot. Run covariation pipeline </td>
+</tr>
+<tr>
+	<td> calc_MI </td>
+	<td> Calculate the Mutual information for aligned sequences </td>
+</tr>
+<tr>
+	<td> calc_RNAalignfold </td>
+	<td> Calculate the RNAalifold covariation score for aligned sequences </td>
+</tr>
+<tr>
+	<td> calc_RNAalignfold_stack </td>
+	<td> Calculate the RNAalifold covariation score (consider stack) for aligned sequences </td>
+</tr>
+<tr>
+	<td> collect_columns </td>
+	<td> Given multialignment, return alignment columns </td>
+</tr>
+<tr>
+	<td> calc_covBP_from_sto </td>
+	<td> Given multialignment, return covariation score for each column pair </td>
 </tr>
 </table>
