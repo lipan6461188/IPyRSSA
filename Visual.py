@@ -9,6 +9,7 @@ export VARNA=[PATH to VARNAv3-93.jar]
 """
 
 import os, sys, random, platform
+import Colors
 
 if 'VARNA' in os.environ:
     VARNAProg = os.environ['VARNA']
@@ -16,6 +17,8 @@ else:
     import Colors
     sys.stderr.writelines( Colors.f("Warning: VARNA variable not found, please specify",fc="red",bc="white",ft="blink") + "\n" )
     VARNAProg = "/Users/lee/Documents/VARNAv3-93.jar"
+
+Gradient_Colors = Colors.linear_gradient("#0b6b38", "#fffbb8", 50)['hex'] + Colors.linear_gradient("#fffbb8", "#aa0626", 50)['hex']
 
 def __highlight_region_cmd(region_list):
     """
@@ -528,15 +531,15 @@ def Map_rRNA_Shape(sequence, shape_list, target, outPrex, title=None, mode='labe
             outFn = outPrex + '_3p.ps'
         else:
             outFn = outPrex + '.ps'
-        if mode == 'label':
-            print("Write file: "+outFn+"...")
-            assert len(base_lines)==cur_len
-            #print(base_lines[:100], cur_len)
-            write_label_ps(header_lines, base_lines, tail_lines, shape_list[start:start+cur_len], title, outFn, cutofflist=cutofflist)
-        elif mode == 'fill':
-            sys.stderr.writelines("Sorry: Not applicant now\n")
-        else:
-            sys.stderr.writelines("Sorry: Not applicant now\n")
+        #if mode == 'label':
+        print("Write file: "+outFn+"...")
+        assert len(base_lines)==cur_len
+        #print(base_lines[:100], cur_len)
+        write_label_ps(header_lines, base_lines, tail_lines, shape_list[start:start+cur_len], title, outFn, cutofflist=cutofflist, mode=mode)
+        #elif mode == 'fill':
+        #    sys.stderr.writelines("Sorry: Not applicant now\n")
+        #else:
+        #    sys.stderr.writelines("Sorry: Not applicant now\n")
         start += cur_len
 
 def get_rRNA_refseq(target):
@@ -560,12 +563,42 @@ def get_rRNA_refseq(target):
         fullseq += seq
     return fullseq
 
-def write_label_ps(header_lines, base_lines, tail_lines, shape_list, title, outFn, cutofflist=[0.3,0.5,0.7]):
+def _color_command_segmented(base_score, cutofflist=[0.3,0.5,0.7]):
+    if base_score == 'NULL':
+        return "0.51 0.51 0.51 setrgbcolor"
+    elif float(base_score) < cutofflist[0]:
+        return "0.00 0.00 0.00 setrgbcolor"
+    elif float(base_score) < cutofflist[1]:
+        return "0.10 0.26 0.60 setrgbcolor"
+    elif float(base_score) < cutofflist[2]:
+        return "0.93 0.59 0.09 setrgbcolor"
+    else:
+        return "0.71 0.11 0.13 setrgbcolor"
+
+def _color_command_heatmap(base_score, gradient_list, min_score=0, max_score=1):
+    import numpy as np
+    if base_score == 'NULL':
+        return "0.51 0.51 0.51 setrgbcolor"
+    else:
+        v = np.clip(float(base_score), min_score, max_score)
+        ind = int( (v-min_score)/(max_score-min_score) * len(gradient_list) )
+        #print(ind)
+        ind = int(np.clip(ind, 0, len(gradient_list)-1))
+        color = gradient_list[ind]
+        #print(color)
+        r,g,b = Colors._hex_to_RGB(color)
+        r,g,b = r/255,g/255,b/255
+        #print(r,g,b)
+        return f"{r:.2f} {g:.2f} {b:.2f} setrgbcolor"
+
+
+def write_label_ps(header_lines, base_lines, tail_lines, shape_list, title, outFn, cutofflist=[0.3,0.5,0.7], mode='fill'):
     """
     header_lines            -- produced by load_ps
     base_lines              -- produced by load_ps
     tail_lines              -- produced by load_ps
     shape_list              -- A list of SHAPE scores
+    title                   -- Title
     outFn                   -- Output file name
     cutofflist              -- The color cutoff
     """
@@ -576,21 +609,43 @@ def write_label_ps(header_lines, base_lines, tail_lines, shape_list, title, outF
         OUT.writelines(header_line)
     #print(len(shape_list), len())
     for shape,base_line in zip(shape_list,base_lines):
-        if shape == 'NULL':
-            OUT.writelines("0.51 0.51 0.51 setrgbcolor\n")
-        elif float(shape) < cutofflist[0]:
-            OUT.writelines("0.00 0.00 0.00 setrgbcolor\n")
-        elif float(shape) < cutofflist[1]:
-            OUT.writelines("0.10 0.26 0.60 setrgbcolor\n")
-        elif float(shape) < cutofflist[2]:
-            OUT.writelines("0.93 0.59 0.09 setrgbcolor\n")
+        if mode=='label':
+            OUT.writelines( _color_command_segmented(shape, cutofflist)+"\n" )
+        elif mode=='heatmap':
+            OUT.writelines( _color_command_heatmap(shape, Gradient_Colors, 0, 1)+"\n" )
         else:
-            OUT.writelines("0.71 0.11 0.13 setrgbcolor\n")
+            raise RuntimeError("Sorry: mode='fill' Not applicant now")
         OUT.writelines(base_line)
     for tail_line in tail_lines:
         OUT.writelines(tail_line)
     OUT.close()
 
+
+def visual_structure_entropy(sequence, shape_list=None, si=-0.6, sm=1.8, md=None, figsize=(15,6)):
+    """
+    Plot the shannon entropy and the pairing probability
+    
+    sequence                -- Sequence
+    shape_list              -- Shape list
+    """
+    import Structure, Figures
+    import matplotlib.pyplot as plt
+    
+    if shape_list:
+        assert len(sequence) == len(shape_list)
+    Len = len(sequence)
+    
+    probList = Structure.partition(sequence, shape_list=shape_list, si=si, sm=sm, md=md, return_pfs=False)
+    shannon = Structure.calcShannon(probList, Len)
+    
+    # Plot figure
+    fig, axs = plt.subplots(2,1,figsize=figsize)
+    axs[0].bar(range(1, Len+1), shannon, width=1)
+    axs[0].set_ylim(0, 0.4)
+    axs[0].set_xlim(1, Len)
+    axs[0].set_ylabel("Shannon Entropy")
+    Figures.rainbowPlot(probList, axs[1], length=Len, lw=1)
+    return fig, axs
 
 
 

@@ -1,8 +1,15 @@
 #-*- coding:utf-8 -*-
 
 import os, General, random
+import tempfile
+from xml.dom import minidom
+import shutil, Colors
 
-class BlastNHit(object):
+####################################
+#### Blast version 1
+####################################
+
+class BlastNHit:
     def __init__(self):
         self.query_id = ""
         self.subject_id = ""
@@ -163,6 +170,153 @@ def annotate_seq(Fasta, genome_blastn_db, Gaper, verbose=True, threads=10):
     
     return id_map, unmapped_ids, unannot_ids
 
+####################################
+#### Blast version 2
+####################################
+
+class BlastNHit_V2:
+    def __init__(self,bit_score,score,evalue,query_from,query_to,hit_acc,hit_from,hit_to,hit_strand, \
+                    identity,gap,align_len,match_qseq,match_tseq,align_pat):
+        self.bit_score = bit_score
+        self.score = score
+        self.evalue = evalue
+        self.query_from = query_from
+        self.query_to = query_to
+        self.hit_acc = hit_acc
+        self.hit_from = hit_from
+        self.hit_to = hit_to
+        self.hit_strand = hit_strand
+        self.identity = identity
+        self.gap = gap
+        self.align_len = align_len
+        self.match_qseq = match_qseq
+        self.match_tseq = match_tseq
+        self.align_pat = align_pat
+    
+    def __str__(self):
+        str1 = "%s\t%d-%d" % (self.match_qseq, self.query_from, self.query_to)
+        str2 = "%s\t%s:%d-%d" % (self.match_tseq, self.hit_acc, self.hit_from, self.hit_to)
+        return "\n"+str1+"\n"+self.align_pat+"\n"+str2+"\n"
+    
+    def __repr__(self):
+        return self.__str__()
+
+def getChildValue(curElem, childNodeName):
+    return curElem.getElementsByTagName(childNodeName)[0].firstChild.nodeValue
+
+def read_blast_result_xml(blastn_xml):
+    xmldoc = minidom.parse(blastn_xml)
+    iteration = xmldoc.getElementsByTagName('Iteration')
+    if len(iteration)>0:
+        query_match = iteration[0]
+        
+        query_id = getChildValue(query_match, 'Iteration_query-def')
+        query_len = getChildValue(query_match, 'Iteration_query-len')
+        query_len = int(query_len)
+        
+        hits = query_match.getElementsByTagName("Hit")
+        Hit_List = []
+        for hit in hits:
+            hit_acc = getChildValue(hit, 'Hit_id').split()[0]
+            Hsps = hit.getElementsByTagName("Hsp")
+            for hsp in Hsps:
+                bit_score = float(getChildValue(hsp, 'Hsp_bit-score'))
+                score = float(getChildValue(hsp, 'Hsp_score'))
+                evalue = float(getChildValue(hsp, 'Hsp_evalue'))
+                query_from = int(getChildValue(hsp, 'Hsp_query-from'))
+                query_to = int(getChildValue(hsp, 'Hsp_query-to'))
+                hit_from = int(getChildValue(hsp, 'Hsp_hit-from'))
+                hit_to = int(getChildValue(hsp, 'Hsp_hit-to'))
+                if hit_from>hit_to:
+                    hit_strand = '-'
+                    hit_from,hit_to = hit_to,hit_from
+                else:
+                    hit_strand = '+'
+                identity = float(getChildValue(hsp, 'Hsp_identity'))
+                gap = int(getChildValue(hsp, 'Hsp_gaps'))
+                align_len = int(getChildValue(hsp, 'Hsp_align-len'))
+                match_qseq = getChildValue(hsp, 'Hsp_qseq')
+                match_tseq = getChildValue(hsp, 'Hsp_hseq')
+                align_pat = getChildValue(hsp, 'Hsp_midline')
+                new_hit = BlastNHit_V2(bit_score,score,evalue,query_from,query_to,hit_acc,hit_from,hit_to,hit_strand,identity,gap,align_len,match_qseq,match_tseq,align_pat)
+                Hit_List.append(new_hit)
+    
+    return Hit_List
+
+def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
+    perc_identity=90, strand="both", # Only for blastn
+    evalue=10, maxhit=500,  task=None, # For blastn and blastp
+    clear=True, verbose=False, threads=1):
+    """
+    Blastn a sequence or sequences and return a list of BlastNHit_V2
+    
+    query_seq               -- Query sequence
+    blastdb                 -- Balstn db, such as /150T/zhangqf/GenomeAnnotation/INDEX/blast/hg38/hg38
+    seqtype                 -- nucl for DNA, protein for Protein
+    perc_identity           -- Minimum percentage of identity (Only for blastn)
+    strand                  -- both, minus or plus
+    evalue                  -- Maximun evalue
+    maxhit                  -- Maximum number of aligned sequences to keep
+    task                    -- blastn, blastn-short, dc-megablast, megablast or rmblastn for seqtype='nucl'
+                               blastp, blastp-fast, blastp-short for seqtype='protein'
+                               default: megablast for seqtype='nucl' and blastp for seqtype='protein'
+    clear                   -- Clear tempropary files
+    verbose                 -- Output command
+    threads                 -- How many threads to use
+    
+    Return: [ BlastNHit_V2, BlastNHit_V2,... ]
+    
+    Require: blastn or blastp
+    """
+    
+    if seqtype=='nucl':
+        blastn = General.require_exec("blastn", "blastn is required")
+        if not os.path.exists(blastdb+".nhr"):
+            raise RuntimeError("Error: blast index is not valid")
+    elif seqtype=='protein':
+        blastp = General.require_exec("blastp", "blastn is required")
+        if not os.path.exists(blastdb+".phr"):
+            raise RuntimeError("Error: blast index is not valid")
+    else:
+        raise RuntimeError("seqtype should be nucl or protein")
+    
+    if type(query_seq) is not str:
+        raise RuntimeError("Error: parameter query_seq should a sequence")
+    
+    tmpdir = tempfile.mkdtemp(prefix="blast_")
+    tmp_query_fa = os.path.join(tmpdir, "query.fa")
+    tmp_balst_xml = os.path.join(tmpdir, "result.xml")
+    
+    with open(tmp_query_fa, 'w') as IN:
+        print(">query-seq", file=IN)
+        print(query_seq, file=IN)
+    
+    if task is None:
+        task = 'megablast' if seqtype=='nucl' else 'blastp'
+    
+    if seqtype=='nucl':
+        cmd = f"{blastn} -query {tmp_query_fa} -strand {strand} -task {task} -db {blastdb} -out {tmp_balst_xml} -outfmt 5 -max_hsps 15 -num_threads {threads} -perc_identity {perc_identity} -evalue {evalue} -max_target_seqs {maxhit}"
+    if seqtype=='protein':
+        cmd = f"{blastp} -query {tmp_query_fa} -task {task} -db {blastdb} -out {tmp_balst_xml} -outfmt 5 -max_hsps 15 -num_threads {threads} -evalue {evalue} -max_target_seqs {maxhit}"
+    
+    if verbose:
+        print(Colors.f(cmd, fc='yellow'))
+    
+    status = os.system(cmd)
+    if status != 0:
+        raise RuntimeError("Error: Blast has an error")
+    
+    hits = read_blast_result_xml(tmp_balst_xml)
+    if clear:
+        shutil.rmtree(tmpdir)
+    
+    return hits
+
+
+####################################
+#### Sequence deduplication
+####################################
+
 class AlignedFasta(object):
     def __init__(self, afa_fn, gap_sym="-", verbose=1):
         self.gap_sym = gap_sym
@@ -246,4 +400,64 @@ class AlignedFasta(object):
     
     def cleanFastaDict(self):
         return { seqID:self.cleanFasta(seqID) for seqID in self.seq_keys}
+
+def cd_hit_est(id2seq, identity=0.9, global_align=False, band_width=20, memory=800, cpu=0, word_length=10,
+    cluster_mode=0, alignment_mode=1, clean=True, verbose=False):
+    """
+    id2seq                  -- {id1:seq1, ...}
+    identity                -- sequence identity threshold. 
+                               this is the default cd-hit's "global sequence identity" calculated as:
+                               number of identical amino acids or bases in alignment
+                               divided by the full length of the shorter sequence
+    global_align            -- use global sequence identity
+    band_width              -- band_width of alignment
+    memory                  -- memory limit (in MB) for the program, 0 for unlimited
+    cpu                     -- number of threads, with 0, all CPUs will be used
+    word_length             -- word_length, default 10, see user's guide for choosing it
+    cluster_mode            -- 1 or 0.
+                               by cd-hit's default algorithm, a sequence is clustered to the first
+                               cluster that meet the threshold (fast cluster). If set to 1, the program
+                               will cluster it into the most similar cluster that meet the threshold
+                               (accurate but slow mode)
+    alignment_mode          -- 1 or 0, default 1, by default do both +/+ & +/- alignments
+                               if set to 0, only +/+ strand alignment
+    clean                   -- Delete all tmp files
+    verbose                 -- Print command
+    
+    Remove duplicated sequence from sequence
+    
+    Return:
+        {id1:seq1,...}
+    
+    Require: cd-hit-est
+    """
+    import General, Colors
+    import shutil, tempfile
+    
+    exe = General.require_exec("cd-hit-est", exception=True)
+    
+    ROOT = tempfile.mkdtemp(prefix="cd_hit_est_")
+    
+    #ROOT = "/tmp/predict_structure_%s/" % (randID, )
+    #os.mkdir(ROOT)
+    fa_file =  os.path.join(ROOT, "input.fa")
+    output_file = os.path.join(ROOT, "output.fa")
+    
+    General.write_fasta(id2seq, fa_file)
+    CMD = f"{exe} -i {fa_file} -o {output_file} -c {identity} -b {band_width} -M {memory} -T {cpu} -n {word_length} -g {cluster_mode} -r {alignment_mode} "
+    if global_align:
+        CMD += " -G "
+    
+    if verbose:
+        print(Colors.f(CMD, fc='yellow'))
+    
+    CMD += ' > /dev/null'
+    os.system(CMD)
+    
+    cleaned_fasta = General.load_fasta(output_file)
+    if clean:
+        shutil.rmtree(ROOT)
+    
+    return cleaned_fasta
+
 

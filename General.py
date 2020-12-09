@@ -1,31 +1,42 @@
 #-*- coding:utf-8 -*-
 
-import sys
+import sys, os, shutil
 
-def load_fasta(seqFn, rem_tVersion=False):
+def load_fasta(seqFn, rem_tVersion=False, load_annotation=False):
     """
     seqFn               -- Fasta file
     rem_tVersion        -- Remove version information. ENST000000022311.2 => ENST000000022311
+    load_annotation     -- Load sequence annotation
+
+    Return:
+        {tid1: seq1, ...} if load_annotation==False
+        {tid1: seq1, ...},{tid1: annot1, ...} if load_annotation==True
     """
-    Fasta = {}
+    fasta = {}
+    annotation = {}
     cur_tid = ''
     cur_seq = ''
     
     for line in open(seqFn):
         if line[0] == '>':
             if cur_seq != '':
-                Fasta[cur_tid] = cur_seq
+                fasta[cur_tid] = cur_seq
                 cur_seq = ''
-            cur_tid = line[1:].split()[0]
+            data = line[1:].split(None, 1)
+            cur_tid = data[0]
+            annotation[cur_tid] = data[1] if len(data)==2 else ""
             if rem_tVersion and '.' in cur_tid: 
                 cur_tid = ".".join(cur_tid.split(".")[:-1])
         else:
             cur_seq += line.rstrip()
     
     if cur_seq != '':
-        Fasta[cur_tid] = cur_seq
+        fasta[cur_tid] = cur_seq
     
-    return Fasta
+    if load_annotation:
+        return fasta, annotation
+    else:
+        return fasta
 
 def load_stockholm(stoFn):
     """
@@ -47,34 +58,47 @@ def load_stockholm(stoFn):
     
     return alignment_list
 
-def write_fasta(Fasta, seqFn):
+def write_fasta(fasta, seqFn, annotation={}):
     """
-    Fasta               -- A dictionary { tid1: seq1, tid2: seq2, ... }
+    fasta               -- A dictionary { tid1: seq1, tid2: seq2, ... }
     seqFn               -- Fasta file
+    annotation          -- {id1:annot1, ...}
     """
     
     OUT = open(seqFn, 'w')
-    for trans_id in Fasta:
-        OUT.writelines(">"+trans_id+"\n")
-        full_seq = Fasta[trans_id]
+    for tid in fasta:
+        if tid in annotation:
+            print(f">{tid} {annotation[tid]}", file=OUT)
+        else:
+            print(f">{tid}", file=OUT)
+        full_seq = fasta[tid]
         start = 0
         while start<len(full_seq):
-            OUT.writelines(full_seq[start:start+60]+"\n")
+            print(full_seq[start:start+60], file=OUT)
+            #OUT.writelines(full_seq[start:start+60]+"\n")
             start+=60
     
     OUT.close()
 
-def load_dot(dotFn, rem_tVersion=False):
+def load_dot(dotFn, rem_tVersion=False, load_annotation=False):
     """
     dotFn               -- Dot file
     rem_tVersion        -- Remove version information. ENST000000022311.2 => ENST000000022311
+    load_annotation     -- Load sequence annotation
+    
+    Return:
+        {tid1: [seq1, dot1], ...} if load_annotation==False
+        {tid1: [seq1, dot1], ...},{tid1: annot1, ...} if load_annotation==True
     """
     Dot = {}
+    annotation = {}
     cur_tid = ""
     
     for line in open(dotFn):
         if line[0] == '>':
-            cur_tid = line[1:].split()[0]
+            data = line[1:].split()
+            cur_tid, annot_str = data[0], " ".join(data[1:])
+            annotation[cur_tid] = annot_str
             if rem_tVersion and '.' in cur_tid: 
                 cur_tid = ".".join(cur_tid.split(".")[:-1])
             Dot[cur_tid] = []
@@ -89,7 +113,10 @@ def load_dot(dotFn, rem_tVersion=False):
             sys.stderr.writelines("Format Error: "+cur_tid+"\n")
             raise NameError("Format Error: "+cur_tid)
     
-    return Dot
+    if load_annotation:
+        return Dot, annotation
+    else:
+        return Dot
 
 def write_dot(dot, dotFn):
     """
@@ -103,9 +130,11 @@ def write_dot(dot, dotFn):
     
     OUT.close()
 
-def load_shape(ShapeFn, rem_tVersion=False, min_RPKM=None):
+def load_shape(ShapeFn, min_ratio=0, min_valid_count=0, rem_tVersion=False, min_RPKM=None):
     """
     ShapeFn             -- Standard icSHAPE file
+    min_ratio           -- Mimimun ratio of valid shape
+    min_valid_count     -- Mimimun count of valid shape
     rem_tVersion        -- Remove version information. ENST000000022311.2 => ENST000000022311
     min_RPKM            -- Minimum RPKM
     """
@@ -119,9 +148,24 @@ def load_shape(ShapeFn, rem_tVersion=False, min_RPKM=None):
         
         if min_RPKM and float(transRPKM) < minRPKM: continue
         
-        SHAPE[ transID ] = data[3:]
+        total = len(data[3:])
+        valid_num = total - data[3:].count('NULL')
+        if valid_num>=min_valid_count and valid_num/total>=min_ratio:
+            SHAPE[ transID ] = data[3:]
     
     return SHAPE
+
+def write_shape(Shape, ShapeFn, RPKM={}):
+    """
+    Shape               -- {tid: [score1, score2, ...]}
+    ShapeFn             -- Path of file to save
+    RPKM                -- RPKM dictionary
+    """
+    OUT = open(ShapeFn, 'w')
+    for tid in Shape:
+        print(f"{tid}\t{len(Shape[tid])}\t{RPKM.get(tid, '*')}\t", file=OUT, end="")
+        print("\t".join(['NULL' if d=='NULL' else str(d) for d in Shape[tid]]), file=OUT)
+    OUT.close()
 
 def load_SHAPEMap(shapeFn, relocate=False, loadAll=False):
     """
@@ -158,8 +202,10 @@ def load_SHAPEMap(shapeFn, relocate=False, loadAll=False):
         co_cov_col_idx = headers.index("Untreated_effective_depth")
         hq_pro_col_idx = headers.index("HQ_profile")
         hq_std_col_idx = headers.index("HQ_stderr")
-        no_pro_col_idx = headers.index("Norm_profile")
-        no_std_col_idx = headers.index("Norm_stderr")
+        try: no_pro_col_idx = headers.index("Norm_profile")
+        except ValueError: no_pro_col_idx = -1
+        try: no_std_col_idx = headers.index("Norm_stderr")
+        except ValueError: no_pro_col_idx = -1
     else:
         seq_col_idx = 1
         tr_mod_col_idx = 2
@@ -185,7 +231,8 @@ def load_SHAPEMap(shapeFn, relocate=False, loadAll=False):
         data = line.strip().split()
         
         sequence += data[seq_col_idx]
-        shape_pro_list.append( fmtN(data[no_pro_col_idx]) )
+        if no_pro_col_idx != -1:
+            shape_pro_list.append( fmtN(data[no_pro_col_idx]) )
         
         if loadAll:
             mod_list.append( int(data[tr_mod_col_idx]) )
@@ -194,7 +241,8 @@ def load_SHAPEMap(shapeFn, relocate=False, loadAll=False):
             dmso_cov_list.append( int(data[co_cov_col_idx]) )
             hq_pro_list.append( fmtN(data[hq_pro_col_idx]) )
             hq_std_list.append( fmtN(data[hq_std_col_idx]) )
-            shape_std_list.append( fmtN(data[no_std_col_idx]) )
+            if no_pro_col_idx != -1:
+                shape_std_list.append( fmtN(data[no_std_col_idx]) )
     
     shapemap = { "seq":sequence, "mod_list":mod_list, "mod_cov_list":mod_cov_list, "dmso_list":dmso_list, "dmso_cov_list":dmso_cov_list, 
         "hq_pro_list":hq_pro_list, "hq_std_list":hq_std_list, "shape_pro_list":shape_pro_list, "shape_std_list":shape_std_list }
@@ -220,13 +268,18 @@ def load_ct(ctFn, load_all=False):
     last_id = 0
     
     seqLen = 0
+    headline = ""
     
     for line in open(ctFn):
+        line = line.strip()
+        if line[0]=='#':
+            continue
         data = line.strip().split()
         if not data[0].isdigit():
             raise RuntimeError("cf file format Error: the first item should be a digit")
         elif seqLen==0:
             seqLen = int(data[0])
+            headline = line.strip()
         elif int(data[0])!=last_id+1:
             raise RuntimeError("ct file format error...")
         else:
@@ -238,7 +291,7 @@ def load_ct(ctFn, load_all=False):
             last_id += 1
             if left_id == seqLen:
                 #print(data, last_id+1)
-                Ct[ID] = [seq, ctList, seqLen]
+                Ct[ID] = [seq, ctList, seqLen, headline]
                 assert seqLen==len(seq)
                 last_id = 0
                 seq = ""
@@ -341,10 +394,18 @@ def find_all_match(pattern, string):
     
     return matches
 
-def bi_search(item, sorted_list):
+def bi_search(item, sorted_list, retern_index=False):
     """
-    pattern            -- Regex expression
-    sorted_list        -- A increasingly sorted list
+    pattern             -- Regex expression
+    sorted_list         -- A increasingly sorted list
+    retern_index        -- If retern_index==True, the index will be returned
+    
+    Return:
+        if retern_index == False
+            True if item in sorted_list
+            False if item not in sorted_list
+        else
+            sorted_list.index(item)
     """
     start = 0   
     end = len(sorted_list) - 1
@@ -357,10 +418,10 @@ def bi_search(item, sorted_list):
         elif sorted_list[middle] > item:
             end = middle - 1
         
-        else:   
-            return True
+        else:
+            return middle if retern_index else True
     
-    return False
+    return -1 if retern_index else False
 
 def calc_gini(list_of_values):
     """
@@ -474,6 +535,31 @@ def calc_shape_structure_ROC(dot, shape_list, start=0.0, step=0.01, stop=1.0):
     
     return ROC
 
+def roc_curve(dot, shape_list, min_len=15):
+    """
+    Calculate the FPR, TPR with sklearn
+    
+    Return
+        fpr, tpr, thresholds
+        if valid length < min_len:
+            return None, None, None
+    """
+    import sklearn, sklearn.metrics
+    import numpy as np
+    
+    y_true = np.array([alpha for alpha in dot])=="."
+    y_score = np.array([ np.nan if d=='NULL' else float(d) for d in shape_list], dtype=float)
+    
+    y_true_ = y_true[~np.isnan(y_score)]
+    y_score_ = y_score[~np.isnan(y_score)]
+    
+    if len(y_true_)>=min_len:
+        fpr, tpr, thresholds = sklearn.metrics.roc_curve(y_true_, y_score_)
+    else:
+        fpr, tpr, thresholds = None, None, None
+    return fpr, tpr, thresholds
+
+
 def calc_AUC(ROC):
     """
     ROC                 -- ROC point list
@@ -545,3 +631,12 @@ def seq_entropy(sequence):
     entropy = sum([ -p*np.log2(p) for p in prob if p!=0 ])
     return entropy
 
+def Run_catchKI(command, folder_list):
+    """
+    Run shell command, if Ctrl+C, then remove folders in folder_list
+    """
+    import signal
+    if os.system(command) == signal.SIGINT:
+        for folder in folder_list:
+            shutil.rmtree(folder)
+        raise RuntimeError("Ctrl + C KeyboardInterrupt.")

@@ -4,7 +4,7 @@
 
 
 print(f"(run {__file__})")
-import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile
+import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections
 def import_module(model_name, from_import_name=None):
     try:
         module = importlib.import_module(model_name)
@@ -44,7 +44,7 @@ else:
     import subprocess
     getoutput = subprocess.getoutput
 
-print("(import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile)")
+print("(import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections)")
 print("(import Colors, Structure, Visual, General, Alignment, Covariation, GAP)")
 print("(from imp import reload)")
 
@@ -95,7 +95,7 @@ def importCommon():
     Pool = import_module("multiprocessing", "Pool")
     partial = import_module("functools", "partial")
     reload = import_module("imp", "reload")
-    tqdm = import_module("tqdm", "tqdm")
+    tqdm = import_module("tqdm.auto", "tqdm")
     _pickle = import_module("_pickle")
     IPython = import_module("IPython")
     clear_output = import_module("IPython.display", "clear_output")
@@ -121,13 +121,17 @@ def importCommon():
     venn2 = import_module("matplotlib_venn", 'venn2')
     venn3 = import_module("matplotlib_venn", 'venn3')
     
+    plt.rc('font', family='Helvetica')
+    plt.rcParams['pdf.fonttype'] = 42
+    
     ### Data Science
-    global pd
+    global pd, tabulate
     global numpy, np
     global scipy
     global statsmodels, multicomp
     
     pd = import_module("pandas")
+    tabulate = import_module("tabulate", "tabulate")
     numpy = import_module("numpy")
     np = import_module("numpy")
     scipy = import_module("scipy")
@@ -186,9 +190,13 @@ def importCommon():
     ### Biopackage
     global pysam
     global pyBigWig
+    global cmap_parse
+    global cmap_write
     
     pysam = import_module("pysam")
     pyBigWig = import_module("pyBigWig")
+    cmap_parse = import_module("cmapPy.pandasGEXpress.parse", "parse")
+    cmap_write = import_module("cmapPy.pandasGEXpress.write_gctx", "write")
 
     ### Random Seed
     #np.random.seed(1216)
@@ -224,151 +232,4 @@ def import_tf2(set_visible_gpu=False, visible_gpu_id=-1):
 
 
 
-
-
-
-# print("importCommon() to import more common modules")
-# def importCommon():
-#     ### Standard library
-#     global getopt
-#     global random
-#     global os
-#     global math
-#     global re
-#     global sys
-#     global time
-#     global tempfile
-#     global copy
-#     global datetime
-#     global subprocess
-#     global Pool
-#     global partial
-#     global reload
-#     global tqdm
-#     global _pickle
-#     global IPython
-#     global clear_output
-    
-#     import getopt
-#     import random
-#     import os
-#     import math
-#     import re
-#     import sys
-#     import time
-#     import tempfile
-#     import copy
-#     import datetime
-#     import subprocess
-#     from multiprocessing import Pool
-#     from functools import partial
-#     from imp import reload
-#     from tqdm import tqdm
-#     import _pickle
-#     import IPython
-#     from IPython.display import clear_output
-    
-#     ### Image
-#     global sns
-#     global matplotlib
-#     global plt
-#     global PdfPages
-#     global venn2, venn3
-    
-#     import seaborn as sns
-#     import matplotlib
-#     import matplotlib.pyplot as plt
-#     import matplotlib.backends.backend_pdf
-#     from matplotlib.backends.backend_pdf import PdfPages
-#     from matplotlib_venn import venn2, venn3
-    
-#     ### Data Science
-#     global pd
-#     global numpy, np
-#     global scipy
-#     global statsmodels, multicomp
-    
-#     import pandas as pd
-#     import numpy
-#     import numpy as np
-#     import scipy
-#     import statsmodels
-#     import statsmodels.sandbox.stats.multicomp as multicomp
-    
-#     ### IPySSSA
-#     global Colors
-#     global Structure
-#     global Visual
-#     global General
-#     global Seq
-#     global Cluster
-#     global Figures
-#     global Rosetta
-    
-#     import Colors
-#     import Structure
-#     import Visual
-#     import General
-#     import Seq
-#     import Cluster
-#     import Figures
-#     try:
-#         from D3 import Rosetta
-#     except RuntimeError:
-#         print("import Rosetta failed")
-    
-#     ### GAP
-#     global GAP
-    
-#     import GAP
-    
-#     ### sklearn
-#     global sklearn
-#     global OneHotEncoder
-#     global svm
-#     global roc_curve
-#     global auc
-#     global precision_recall_curve
-#     global biweight_midcorrelation
-#     global ensemble
-#     global metrics
-    
-#     import sklearn
-#     from sklearn.preprocessing import OneHotEncoder
-#     from sklearn import svm
-#     from sklearn.metrics import roc_curve, auc, precision_recall_curve
-#     import sklearn.ensemble as ensemble
-#     from astropy.stats import biweight_midcorrelation
-#     import sklearn.metrics as metrics
-    
-#     np.random.seed(1216)
-#     random.seed(1216)
-
-# print("import_tf2() to import tensorflow2")
-# def import_tf2(set_visible_gpu=False, visible_gpu_id=-1):
-#     global tf
-#     global keras
-#     global layers
-#     global v1
-#     global optimizers
-#     global losses
-#     global Sequential
-#     global tfa
-    
-#     import tensorflow as tf
-#     from tensorflow import keras
-#     from tensorflow.keras import layers
-#     import tensorflow.compat.v1 as v1
-#     from tensorflow.keras import optimizers
-#     from tensorflow.keras import losses
-#     from tensorflow.keras import Sequential
-#     import tensorflow_addons as tfa
-    
-#     gpus = tf.config.experimental.list_physical_devices("GPU")
-#     print(f"list_physical_devices GPUs: {gpus}")
-#     if set_visible_gpu:
-#         tf.config.experimental.set_visible_devices([gpus[visible_gpu_id]], "GPU")
-#         tf.config.experimental.set_memory_growth(gpus[visible_gpu_id], True)
-    
-#     tf.random.set_seed(1216)
 

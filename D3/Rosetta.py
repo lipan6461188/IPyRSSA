@@ -36,7 +36,7 @@ helix_setup_CMD = "cd %s;helix_setup.py -fasta %s -secstruct %s -out_prefix %s -
 rna_denovo_CMD = "cd %s;rna_denovo -fasta %s -secstruct_file %s -tag %s -nstruct %s -fixed_stems -s %s -include_neighbor_base_stacks -working_res 1-%s -minimize_rna true"
 extract_CMD = "cd %s;extract_lowscore_decoys.py %s %s"
 
-def pred_3D_rosetta(seq, dot, seq_title, outFolder, gen_modellimit=1000, topnum=50, verbose=False, queue="Z-ZQF"):
+def pred_3D_rosetta(seq, dot, seq_title, outFolder, gen_modellimit=1000, topnum=50, verbose=False, cpu=1, queue="Z-ZQF"):
     """
     seq                 -- RNA sequence
     dot                 -- Dotbracket structure
@@ -62,14 +62,14 @@ def pred_3D_rosetta(seq, dot, seq_title, outFolder, gen_modellimit=1000, topnum=
     open(faFn, "w").writelines( ">"+seq_title+"\n"+seq+"\n" )
     open(strFn, "w").writelines( dot+"\n" )
     CMD1 = helix_setup_CMD % (outFolder, faFn, strFn, helix_prefix, cmdFn)
-    helix_setup_job = Cluster.new_job(command=CMD1, queue=queue, cpu=1, job_name=seq_title+"_helix_setup_1", logFn=logFn,  errFn=errFn)
+    helix_setup_job = Cluster.new_job(command=CMD1, queue=queue, cpu=cpu, job_name=seq_title+"_helix_setup_1", logFn=logFn,  errFn=errFn)
     
     CMD2 = rna_denovo_CMD % (outFolder, faFn, strFn, denovoFn, gen_modellimit, helix_prefix+"*.pdb", len(seq))
-    rna_denovo_job = Cluster.new_job(command=CMD2, queue=queue, cpu=1, job_name=seq_title+"_rna_denovo_2", logFn=logFn,  errFn=errFn)
+    rna_denovo_job = Cluster.new_job(command=CMD2, queue=queue, cpu=cpu, job_name=seq_title+"_rna_denovo_2", logFn=logFn,  errFn=errFn)
     rna_denovo_job.set_job_depends([helix_setup_job])
     
     CMD3 = extract_CMD % (outFolder, denovoFn+".out", topnum)
-    extract_job = Cluster.new_job(command=CMD3, queue=queue, cpu=1, job_name=seq_title+"_extract_3", logFn=logFn,  errFn=errFn)
+    extract_job = Cluster.new_job(command=CMD3, queue=queue, cpu=cpu, job_name=seq_title+"_extract_3", logFn=logFn,  errFn=errFn)
     extract_job.set_job_depends([rna_denovo_job])
     
     helix_setup_job.submit(verbose)

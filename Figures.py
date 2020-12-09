@@ -3,6 +3,7 @@
 import sys
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+import matplotlib
 
 def stackedBarPlot( stackedBars, stackedLabels, barLabels, stackedColors=None ):
     """
@@ -246,3 +247,82 @@ def cdf(data, color='black', linestyle='--', label=None):
     plt.ylim((0,1))
     plt.ylabel("CDF")
     #plt.grid(True)
+
+
+def annotate(axs, text, location='top left'):
+    """
+    axs             --  Axis, use plt.gca() to get current axis
+    text            --  Text to annotate
+    location        --  top left / to center / top right /
+                        bottom left / bottom center / bottom right
+    """
+    if location == 'top left':
+        xy = (0.02, 0.98)
+        axs.annotate(s=text, xycoords='axes fraction', xy=xy, horizontalalignment='left', verticalalignment='top')
+    elif location == 'top center':
+        xy = (0.5, 0.98)
+        axs.annotate(s=text, xycoords='axes fraction', xy=xy, horizontalalignment='center', verticalalignment='top')
+    elif location == 'top right':
+        xy = (0.98, 0.98)
+        axs.annotate(s=text, xycoords='axes fraction', xy=xy, horizontalalignment='right', verticalalignment='top')
+    elif location == 'bottom left':
+        xy = (0.02, 0.02)
+        axs.annotate(s=text, xycoords='axes fraction', xy=xy, horizontalalignment='left', verticalalignment='bottom')
+    elif location == 'bottom center':
+        xy = (0.5, 0.02)
+        axs.annotate(s=text, xycoords='axes fraction', xy=xy, horizontalalignment='center', verticalalignment='bottom')
+    elif location == 'bottom right':
+        xy = (0.98, 0.02)
+        axs.annotate(s=text, xycoords='axes fraction', xy=xy, horizontalalignment='right', verticalalignment='bottom')
+    else:
+        raise RuntimeError("location Error")
+
+
+def rainbowPlot(probList, ax, length=None, lw=0.8, prob_cutoff=[0.8, 0.3, 0.1, 0.03]):
+    """
+    This is a function to plot the RNA secondary structure with probability.
+    
+    probList                -- [[3, 135, 0.15], ...]. Returned by Structure.partition
+    ax                      -- plt.subplots return
+    length                  -- The length of the RNA
+    lw                      -- Line width
+    prob_cutoff             -- The cutoff of the probability of base pairing
+    
+    fig, ax = plt.subplots(figsize=(12,3))
+    probList = [[3, 135, 0.15], [4, 134, 0.16], [5, 133, 0.15], [7, 33, 1.0], [8, 32, 1.0], [9, 31, 1.0], [10, 30, 1.0], [11, 29, 0.95], [13, 26, 0.98], [14, 25, 1.0], [15, 24, 1.0], [16, 23, 1.0], [17, 22, 0.98], [45, 59, 1.0], [46, 58, 1.0], [47, 57, 1.0], [48, 56, 1.0], [49, 55, 0.99], [61, 75, 1.0], [62, 74, 1.0], [63, 73, 1.0], [64, 72, 1.0], [82, 130, 0.41], [83, 129, 0.42], [84, 127, 1.0], [85, 126, 1.0], [86, 125, 1.0], [87, 124, 1.0], [88, 123, 1.0], [89, 122, 1.0], [90, 121, 1.0], [91, 120, 0.98], [93, 118, 0.99], [94, 117, 0.99], [96, 116, 0.99], [97, 115, 1.0], [98, 114, 1.0], [99, 113, 1.0], [101, 111, 1.0], [102, 110, 1.0], [103, 109, 1.0], [150, 294, 0.93], [151, 293, 1.0], [152, 292, 1.0], [153, 291, 1.0], [154, 290, 1.0], [155, 289, 1.0], [156, 288, 1.0], [157, 284, 1.0], [158, 283, 1.0], [159, 282, 1.0], [160, 281, 1.0], [163, 279, 0.99], [164, 278, 1.0], [165, 277, 1.0], [166, 276, 1.0], [167, 275, 1.0], [171, 273, 1.0], [172, 272, 1.0], [173, 271, 1.0], [175, 270, 1.0], [176, 269, 1.0], [177, 268, 1.0], [178, 267, 1.0], [179, 266, 1.0], [180, 265, 1.0], [181, 264, 1.0], [182, 263, 0.81], [183, 227, 0.98], [184, 226, 0.99], [185, 225, 0.99], [188, 218, 1.0], [189, 217, 1.0], [190, 216, 1.0], [191, 215, 1.0], [192, 214, 1.0], [193, 213, 1.0], [195, 210, 0.94], [196, 209, 1.0], [197, 208, 1.0], [198, 207, 1.0], [199, 206, 1.0], [228, 252, 1.0], [229, 251, 1.0], [230, 250, 1.0], [231, 249, 1.0], [232, 248, 1.0], [233, 247, 1.0], [234, 246, 0.97], [236, 245, 0.98], [237, 244, 0.98], [253, 262, 0.92], [254, 261, 1.0], [255, 260, 1.0]]
+    rainbowPlot(probList, ax, 300)
+    plt.show()
+    """
+    import Colors
+    max_height = 0
+    for left,right,prob in probList:
+        color = ""
+        if prob>prob_cutoff[0]:
+            color = Colors.RGB['green']
+        elif prob>prob_cutoff[1]:
+            color = Colors.RGB['blue']
+        elif prob>prob_cutoff[2]:
+            color = Colors.RGB['yellow']
+        elif prob>prob_cutoff[3]:
+            color = Colors.RGB['gray']
+        if color:
+            x = (left+right)/2
+            width = (right-left)
+            height = width*0.01
+            max_height = max(max_height, height/2)
+            circle = matplotlib.patches.Arc((x, 0), width=width, color=color, angle=0, height=height, theta1=0, theta2=180, lw=lw)
+            tmp = ax.add_artist(circle)
+    ax.set_ylim(0, max_height)
+    ax.set_yticklabels([], [])
+    ax.set_yticks([])
+    
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    
+    if length:
+        ax.set_xlim(1, length)
+
+
+
+
