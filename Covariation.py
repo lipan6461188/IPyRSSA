@@ -288,18 +288,51 @@ def R_scape(StoFn, outDir, outname=None, maxIdentity=0.985, minIndentity=0.500,
     
     os.system(cmd)
 
-def read_RScape_result(Rscape_cov_fn):
+def read_RScape_result(Rscape_cov_fn, RScape_inpit_sto=None, querySeq=None):
     """
-    Rscape_cov_fn            -- The XXXX.cov file of R-Scape output
+    Rscape_cov_fn               -- The XXXX.cov file of R-Scape output
+    RScape_inpit_sto            -- The input stockholm file for R-scape
+    querySeq                    -- The qeury sequence
+    
+    if RScape_inpit_sto and querySeq is provided, the coordinate system will be converted into querySeq
+    Return:
+        [ [left,right,evalue],... ]
     """
+    import numpy as np
     cov_pairs = []
     for line in open(Rscape_cov_fn):
         if line[0]=='*':
             data = line.strip().split()
             left = int(data[1])
             right = int(data[2])
-            cov_pairs.append((left, right))
-    return sorted(cov_pairs, key=lambda x: x[0])
+            evalue = float(data[4])
+            cov_pairs.append((left, right, evalue))
+    cov_pairs = sorted(cov_pairs, key=lambda x: x[0])
+    
+    if RScape_inpit_sto and querySeq:
+        import General,Structure
+        id2seq, refStr, refSeq = General.load_stockholm(RScape_inpit_sto)[0]
+        for id1 in id2seq:
+            if 'U' in id2seq[id1]:
+                querySeq = querySeq.replace('T','U')
+            elif 'T' in id2seq[id1]:
+                querySeq = querySeq.replace('U','T')
+            aligned_seq1, aligned_seq2 = Structure.multi_alignment( [id2seq[id1].replace('-',''), querySeq] )
+            if np.mean([ d1==d2 for d1,d2 in zip(aligned_seq1, aligned_seq2) ]) > 0.9:
+                break
+        pos2pos = {}
+        j = 0
+        for i in range(len(id2seq[id1])):
+            if id2seq[id1][i] != '-':
+                while j<len(aligned_seq1) and aligned_seq1[j] == '-':
+                    j += 1
+                if j>=len(aligned_seq1):
+                    break
+                pos2pos[i] = j
+                j += 1
+        cov_pairs = [ [pos2pos.get(d[0]-1,-1)+1, pos2pos.get(d[1]-1,-1)+1, d[2]] for d in cov_pairs ]
+    
+    return cov_pairs
 
 def collapse_sequences(id2seq, refSeq, max_identity=0.95, min_match_identity=0.5, max_indel_ratio=0.5):
     """
@@ -834,3 +867,141 @@ def calc_covBP_from_sto(stoFn, querySeq=None, query_id_pattern=None, full_seq=No
     else:
         raise RuntimeError('querySeq or query_id_pattern must be specified')
     return covary_bps
+
+def Build_Rfam_seed(input_sto, input_seq, seqDBFastaFn, workdir, toponly=True, iteration=3, blastFilter=None, use_LSF=True, cores=5, verbose=True):
+    """
+    This function build a rfam seed according to https://docs.rfam.org/en/latest/building-families.html
+    Repeat this process "iteration" times:
+    Seed -[cmbuild]-> CM -[cmcalibrate]-> CM -[cmsearch]-> Stockholm -[Filter]-> Fasta -[cmalign]-> Stockholm -[cmbuild]-> CM
+    
+    input_sto               -- Seed stockholm file, contains single sequence and structure, output file of Covariation.dot2sto
+    input_seq               -- The sequence in input_sto
+    seqDBFastaFn            -- The target sequences, contains all homologous sequences
+    workdir                 -- Work directory, all immediate files will be contained
+    toponly                 -- Only search the positive strand
+    iteration               -- How many times to repeat the cmsearch processes
+    blastFilter             -- If set, will use blast result to filter the cmsearch target. The cmsearch coordinate will
+                               be compared with blast result. The purpose is to prevent the cmsearch give too much weight 
+                               on structure and ignore the sequence
+                               { 'full_seq': "ACTG...",  # The full length sequence contain input_seq
+                                'blastdb':"/path/to/blastdb", 
+                                'flanking': 20, # Max distance between the cmsearch result and blast result
+                                'blast_identity': 0.4, # Blast cutoff
+                                'min_match': 5, # Minimun target
+                                'ignore_seq': ['input'] # Which results to ignore
+                                }
+    use_LSF                 -- bsub or run in local
+    cores                   -- How many cores to use
+    verbose                 -- If print the information in the screen
+    
+    Return:
+        Return a stockholm file with final alignment
+    """
+    import Alignment, Colors
+    if blastFilter:
+        input_start = blastFilter['full_seq'].find(input_seq)
+        assert input_start != -1, f"input_seq not in full_seq, consider maintain consistent letter case and U/T"
+        input_end = input_start + len(input_seq)
+        start = max(input_start-blastFilter.get('flanking', 20), 0)
+        end = min(input_end+blastFilter.get('flanking', 20), len(blastFilter['full_seq']))
+        hits = Alignment.blast_sequence_V2(blastFilter['full_seq'][start:end], blastFilter['blastdb'], verbose=verbose, task='blastn', maxhit=5000, perc_identity=blastFilter['blast_identity'] )
+        target_valid_range = {}
+        for hit in hits:
+            if hit.hit_acc not in target_valid_range:
+                target_valid_range[hit.hit_acc] = (hit.hit_from, hit.hit_to)
+        if len(target_valid_range)<blastFilter.get('min_match', 5):
+            if verbose: print(Colors.f("Failed: Too little blast target", 'red'))
+            return False
+        else:
+            if verbose: print(f"Blast: {len(target_valid_range)} results found")
+    
+    for it_num in range(iteration):
+        if verbose: print(f"===========>>> Iteration {it_num}  <<<===========")
+        
+        ### Define files 
+        if it_num==0:
+            input_sto = input_sto
+        else:
+            input_sto = os.path.join(workdir, f'cmalign_output_{it_num-1}.sto')
+        input_cm = os.path.join(workdir, f'cmsearch_input_{it_num}.cm')
+        cmsearch_output_txt = os.path.join(workdir, f'cmsearch_output_{it_num}.txt')
+        cmsearch_output_sto = os.path.join(workdir, f'cmsearch_output_{it_num}.sto')
+        cmalign_input_fa = os.path.join(workdir, f'cmalign_input_{it_num}.fa')
+        cmalign_output_sto = os.path.join(workdir, f'cmalign_output_{it_num}.sto')
+        
+        ### Build CM model
+        cmbuild(input_sto, input_cm)
+        h = cmcalibrate(input_cm, use_LSF=use_LSF, LSF_parameters={'cpu': cores})
+        if use_LSF: h.wait()
+        
+        ### cmsearch
+        tmp_fa,tmp_annot = General.load_fasta(seqDBFastaFn, load_annotation=True)
+        tmp_fa['input'] = input_seq
+        General.write_fasta(tmp_fa, os.path.join(workdir, 'tmp_ref.fa'), tmp_annot)
+        del tmp_fa
+        h = cmsearch(input_cm, os.path.join(workdir, 'tmp_ref.fa'), \
+            cmsearch_output_txt, cmsearch_output_sto, cpu=cores, toponly=toponly, nohmm=False, nohmmonly=False, \
+            outputE=20, acceptE=1, cut_ga=False, rfam=False, glocal=False, verbose=True, showCMD=True, use_LSF=use_LSF, 
+            LSF_parameters={'cpu': cores})
+        if use_LSF: h.wait()
+        os.remove(os.path.join(workdir, 'tmp_ref.fa'))
+        
+        ### Read cmsearch result
+        id2seq_dict, refStr, refSeq = General.load_stockholm(cmsearch_output_sto)[0]
+        refID = [ key for key in id2seq_dict if key.startswith('input') ][0]
+        refSeq = id2seq_dict[refID]
+        
+        ### Filter results not in blast hits
+        if blastFilter:
+            for key in list(id2seq_dict.keys()):
+                if '/' in key:
+                    true_id, start_end = key.rsplit('/', 1)
+                    start, end = start_end.split('-')
+                    start = int(start)
+                    end = int(end)
+                    if true_id in target_valid_range:
+                        valid_start, valid_end = target_valid_range[true_id]
+                        if (end<valid_start or start>valid_end):
+                            del id2seq_dict[key]
+                    elif true_id in blastFilter.get('ignore_seq',['input']):
+                        if verbose: print("Ignored:",true_id)
+                    else:
+                        if verbose: print("Killed:",Colors.f(true_id, fc='red'))
+                        del id2seq_dict[key]
+                else:
+                    if verbose: print("Killed:",Colors.f(true_id, fc='green'))
+                    del id2seq_dict[key]
+        
+        ### Remove highly similar sequences
+        uniq_seq = collapse_sequences(id2seq_dict, refSeq, max_identity=0.98, min_match_identity=0.2, max_indel_ratio=0.5)
+        ### Remove sequences with too many base pairs broken
+        clean_id2seq = remove_bpbreak_sequences(uniq_seq, refStr, maxBpBreakRatio=0.2, maxBpDeletRatio=0.5, maxBpBreakCount=99, maxBpDeletion=99)
+        ### Remove sequences with nucleotides other than AUCG
+        for key in list(clean_id2seq.keys()):
+            v = clean_id2seq[key].replace('~','-').replace(':','-').replace('.','-').upper().replace('U','T')
+            if len(v) != v.count('A')+v.count('T')+v.count('C')+v.count('G')+v.count('-'):
+                del clean_id2seq[key]
+        pure_fasta = { k:v.replace('~','').replace(':','').replace('.','').replace('-','').upper().replace('U','T') for k,v in clean_id2seq.items() }
+        ### Remove highly similar sequences
+        collapsed_pure_fasta = Alignment.cd_hit_est(pure_fasta, identity=0.98, verbose=True)
+        clean_id2seq = { k:clean_id2seq[k] for k in collapsed_pure_fasta }
+        if len(clean_id2seq)==0:
+            #### No homologous sequence to call covariation in the sequence db
+            if verbose: print(Colors.f("Failed: No homologous sequences left", 'red'))
+            return False
+        ### Remove alignment columns with too many gaps
+        returnvalues = remove_gap_columns(clean_id2seq, refSeq=refSeq, refStr=refStr, minGapRatio=1.0)
+        
+        ### cmalign
+        GS_DE = read_sto_DE(cmsearch_output_sto) # read description
+        small_seqdb = { k:v.replace('-','') for k,v in returnvalues['id2seq'].items() }
+        small_seqdb['input'] = input_seq
+        General.write_fasta(small_seqdb, os.path.join(workdir, 'cmalign_input.fa'), GS_DE)
+        h = cmalign(input_cm, os.path.join(workdir, 'cmalign_input.fa'), cmalign_output_sto, cpu=cores, glocal=False, 
+            outformat='Stockholm', mxsize=1028.0, verbose=True, showCMD=True, use_LSF=use_LSF, LSF_parameters={'cpu': cores})
+        if use_LSF: h.wait()
+    
+    return cmalign_output_sto
+
+
+    

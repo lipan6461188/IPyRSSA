@@ -211,7 +211,7 @@ def Plot_RNAStructure_Shape(sequence, dot, shape_list,
     mode='label', correctT=True, scaling=0.8, 
     highlight_region=[], annotation=[], cutofflist=[0.3,0.5,0.7], 
     bpprob=[], bpprob_cutofflist=[0.6,0.8,0.95], bpprob_mode='color', bpwarning=True,
-    period=10, first_base_pos=1, peroid_color='#FFFFFF',
+    period=10, first_base_pos=1, peroid_color='#000000',
     title="", wait=True, VARNAProg=VARNAProg):
     """
     sequence            -- Raw sequence
@@ -265,7 +265,7 @@ def Plot_RNAStructure_Shape(sequence, dot, shape_list,
         new_bpprob = __dot_match_bpprob(dot, bpprob, bpwarning)
         CMD += " " + __basepair_bpprob_cmd(new_bpprob, bpprob_cutofflist, bpprob_mode)
     
-    if first_base_pos==1 and peroid_color=='#FFFFFF':
+    if first_base_pos==1 and peroid_color=='#000000':
         CMD += f" -period {period}"
     else:
         CMD += " " + __manual_period(len(sequence), first_base_pos, period, peroid_color)
@@ -302,7 +302,7 @@ def __base_color_base_cmd(seq):
 def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.8, 
     highlight_region=[], annotation=[], 
     bpprob=[], bpprob_cutofflist=[0.6,0.8,0.95], bpprob_mode='color', bpwarning=True,
-    period=10, first_base_pos=1, peroid_color='#FFFFFF',
+    period=10, first_base_pos=1, peroid_color='#000000',
     title="", wait=True, VARNAProg=VARNAProg):
     """
     sequence            -- Raw sequence
@@ -352,7 +352,7 @@ def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.
         new_bpprob = __dot_match_bpprob(dot, bpprob, bpwarning)
         CMD += " " + __basepair_bpprob_cmd(new_bpprob, bpprob_cutofflist, bpprob_mode)
     
-    if first_base_pos==1 and peroid_color=='#FFFFFF':
+    if first_base_pos==1 and peroid_color=='#000000':
         CMD += f" -period {period}"
     else:
         CMD += " " + __manual_period(len(sequence), first_base_pos, period, peroid_color)
@@ -368,7 +368,7 @@ def Plot_RNAStructure_Base(sequence, dot, mode='fill', correctT=True, scaling=0.
 def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', correctT=True, 
     scaling=0.8, highlight_region=[], annotation=[], 
     bpprob=[], bpprob_cutofflist=[0.6,0.8,0.95], bpprob_mode='color', bpwarning=True,
-    period=10, first_base_pos=1, peroid_color='#FFFFFF',
+    period=10, first_base_pos=1, peroid_color='#000000',
     title="", wait=True, VARNAProg=VARNAProg):
     """
     sequence            -- Raw sequence
@@ -420,7 +420,7 @@ def Plot_RNAStructure_highlight(sequence, dot, hg_base_list=[], mode='fill', cor
         new_bpprob = __dot_match_bpprob(dot, bpprob, bpwarning)
         CMD += " " + __basepair_bpprob_cmd(new_bpprob, bpprob_cutofflist, bpprob_mode)
     
-    if first_base_pos==1 and peroid_color=='#FFFFFF':
+    if first_base_pos==1 and peroid_color=='#000000':
         CMD += f" -period {period}"
     else:
         CMD += " " + __manual_period(len(sequence), first_base_pos, period, peroid_color)
