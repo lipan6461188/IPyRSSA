@@ -3,13 +3,17 @@
 # Lipan's .startup.py file
 
 
+def warn_f(text):
+    code = "%d;%d;%d" % (0, 31, 49)
+    return "\x1b["+code+"m"+text+"\x1b[0m"
+ 
 print(f"(run {__file__})")
-import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections
+import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections, pickle, io, gzip
 def import_module(model_name, from_import_name=None):
     try:
         module = importlib.import_module(model_name)
     except ModuleNotFoundError:
-        print( Colors.f(f"{model_name} not found, import failed", fc='red') )
+        print( warn_f(f"{model_name} not found, import failed") )
         return None
     if from_import_name is not None:
         try:
@@ -20,12 +24,12 @@ def import_module(model_name, from_import_name=None):
             return getattr(module, from_import_name)
         except AttributeError:
             err_code = 2
-        print( Colors.f(f"{from_import_name} not in {model_name}", fc='red') )
+        print( warn_f(f"{from_import_name} not in {model_name}") )
         return None
     else:
         return module
 
-global Colors, Structure, Visual, General, Alignment, Covariation, GAP
+global Colors, Structure, Visual, General, Alignment, Covariation, GAP, FFindex
 Colors = import_module("Colors")
 Structure = import_module("Structure")
 Visual = import_module("Visual")
@@ -34,6 +38,7 @@ Alignment = import_module("Alignment")
 Covariation = import_module("Covariation")
 GAP = import_module("GAP")
 reload = import_module("imp", "reload")
+FFindex = import_module("FFindex", "FFindex")
 
 if sys.version_info.major == 2:
     import commands
@@ -44,7 +49,7 @@ else:
     import subprocess
     getoutput = subprocess.getoutput
 
-print("(import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections)")
+print("(import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections, pickle, io, gzip)")
 print("(import Colors, Structure, Visual, General, Alignment, Covariation, GAP)")
 print("(from imp import reload)")
 
@@ -231,5 +236,13 @@ def import_tf2(set_visible_gpu=False, visible_gpu_id=-1):
     tf.random.set_seed(1216)
 
 
-
+print("import_torch() to import pytorch")
+def import_torch():
+    global torch
+    global nn
+    global F
+    
+    torch = import_module("torch")
+    nn = import_module("nn", "torch")
+    F = import_module("torch.nn.functional")
 

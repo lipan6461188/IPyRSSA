@@ -966,10 +966,10 @@ def Build_Rfam_seed(input_sto, input_seq, seqDBFastaFn, workdir, toponly=True, i
                     elif true_id in blastFilter.get('ignore_seq',['input']):
                         if verbose: print("Ignored:",true_id)
                     else:
-                        if verbose: print("Killed:",Colors.f(true_id, fc='red'))
+                        if verbose: print("Not in blast hits:",Colors.f(true_id, fc='red'))
                         del id2seq_dict[key]
                 else:
-                    if verbose: print("Killed:",Colors.f(true_id, fc='green'))
+                    if verbose: print("Not slash in key:",Colors.f(true_id, fc='green'))
                     del id2seq_dict[key]
         
         ### Remove highly similar sequences

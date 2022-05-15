@@ -246,7 +246,7 @@ def read_blast_result_xml(blastn_xml):
 def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
     perc_identity=90, strand="both", # Only for blastn
     evalue=10, maxhit=500,  task=None, # For blastn and blastp
-    clear=True, verbose=False, threads=1):
+    clear=True, verbose=False, threads=1, use_LSF=False, LSF_parameters={}):
     """
     Blastn a sequence or sequences and return a list of BlastNHit_V2
     
@@ -263,6 +263,8 @@ def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
     clear                   -- Clear tempropary files
     verbose                 -- Output command
     threads                 -- How many threads to use
+    use_LSF                 -- Submit to LSF if True
+    LSF_parameters          -- { 'queue': 'Z-ZQF', 'cpu': 20, 'job_name': 'cmsearch', 'logFn': '/dev/null', 'errFn': '/dev/null' }
     
     Return: [ BlastNHit_V2, BlastNHit_V2,... ]
     
@@ -275,7 +277,7 @@ def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
             raise RuntimeError("Error: blast index is not valid")
     elif seqtype=='protein':
         blastp = General.require_exec("blastp", "blastn is required")
-        if not os.path.exists(blastdb+".phr"):
+        if not os.path.exists(blastdb+".pdb"):
             raise RuntimeError("Error: blast index is not valid")
     else:
         raise RuntimeError("seqtype should be nucl or protein")
@@ -283,7 +285,10 @@ def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
     if type(query_seq) is not str:
         raise RuntimeError("Error: parameter query_seq should a sequence")
     
-    tmpdir = tempfile.mkdtemp(prefix="blast_")
+    if use_LSF:
+        tmpdir = tempfile.mkdtemp(prefix="blast_", dir=os.path.join(os.environ['HOME'],'tmp'))
+    else:
+        tmpdir = tempfile.mkdtemp(prefix="blast_")
     tmp_query_fa = os.path.join(tmpdir, "query.fa")
     tmp_balst_xml = os.path.join(tmpdir, "result.xml")
     
@@ -299,13 +304,30 @@ def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
     if seqtype=='protein':
         cmd = f"{blastp} -query {tmp_query_fa} -task {task} -db {blastdb} -out {tmp_balst_xml} -outfmt 5 -max_hsps 15 -num_threads {threads} -evalue {evalue} -max_target_seqs {maxhit}"
     
-    if verbose:
-        print(Colors.f(cmd, fc='yellow'))
+    if use_LSF:
+        import Cluster
+        job = Cluster.new_job(command=cmd, 
+            queue=LSF_parameters.get('queue', 'Z-ZQF'), 
+            cpu=LSF_parameters.get('cpu', 20), 
+            job_name=LSF_parameters.get('job_name', 'Alignment.blast_sequence_V2'), 
+            logFn=LSF_parameters.get('logFn', '/dev/null'),
+            errFn=LSF_parameters.get('errFn', '/dev/null'))
+        if verbose:
+            print(Colors.f(job.get_submit_command(), fc='yellow'))
+        job.submit()
+        job.wait()
+    else:
+        if verbose:
+            print(Colors.f(cmd, fc='yellow'))
+        if clear:
+            status = General.Run_catchKI(cmd, [tmpdir])
+        else:
+            status = os.system(cmd)
+        if status != 0:
+            raise RuntimeError("Error: Blast has an error")
     
-    status = os.system(cmd)
-    if status != 0:
-        raise RuntimeError("Error: Blast has an error")
-    
+    if not os.path.exists(tmp_balst_xml):
+        raise RuntimeError(f"Error: Blast has an error, {tmp_balst_xml} not found")
     hits = read_blast_result_xml(tmp_balst_xml)
     if clear:
         shutil.rmtree(tmpdir)

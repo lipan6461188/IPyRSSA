@@ -2,7 +2,7 @@
 
 import re
 from pyliftover import LiftOver
-import sys
+import sys, os, General
 
 # def reverse_comp(sequence):
 #     """
@@ -207,3 +207,78 @@ def search_subseq_from_genome(Seqer, chrID, start, end, strand, pattern, caller=
         hits = hits[0]
     
     return hits
+
+
+###################################
+### Clustering sequences
+###################################
+
+def cluster_sequences(seq_dict, seq_type='prot', cutoff=0.80, verbose=False):
+    """
+    Parameters
+    ------------
+    seq_dict: {seq_name: 'AXJIJDIWIJDIWD', ...}
+    seq_type: prot or dna
+    cutoff: float
+        Similarity cutoff
+    verbose: bool
+        Print the command
+    
+    Return
+    -----------
+    cluster: [ [seq_id, seq_length, similarity], ... ]
+    """
+    assert seq_type in ('prot', )
+    import tempfile, shutil, subprocess
+    
+    cdhit_bin = shutil.which('cd-hit')
+    assert cdhit_bin is not None, "Error: cd-hit not in PATH"
+    
+    workdir = tempfile.mkdtemp(prefix="clusterSeq_")
+    input_fa = os.path.join(workdir, "input.fa")
+    output_fa = os.path.join(workdir, "output.fa")
+    clust_fn = os.path.join(workdir, "output.fa.clstr")
+    General.write_fasta(seq_dict, input_fa)
+    
+    cmd = f"{cdhit_bin} -i {input_fa} -o {output_fa} -c {cutoff}"
+    if verbose:
+        print(cmd)
+    _ = subprocess.getoutput(cmd)
+    if not os.path.exists(clust_fn):
+        print(f"Run cd-hit failed, {clust_fn} not exists")
+        cluster = None
+    else:
+        cluster = read_cdhit_clstr(clust_fn)
+    
+    shutil.rmtree(workdir)
+    return cluster
+
+def read_cdhit_clstr(clstr_fn):
+    """
+    Read sequence clusters from CD-Hit result
+    """
+    cluster = []
+    cur_cluster = []
+    for line in open(clstr_fn):
+        if line[0] == '>':
+            if len(cur_cluster) > 0:
+                cluster.append(cur_cluster)
+                cur_cluster = []
+        else:
+            length, seq_id, similarity = re.findall(r"(\d+)aa, >(.*)\.\.\. (.*)$", line)[0]
+            length = int(length)
+            if similarity == '*':
+                similarity = 100.0
+            else:
+                similarity = float(similarity[3:-1])
+            cur_cluster.append( [seq_id, length, similarity] )
+    if len(cur_cluster) > 0:
+        cluster.append(cur_cluster)
+        cur_cluster = []
+    return cluster
+
+
+
+
+
+

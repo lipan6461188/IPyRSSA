@@ -22,12 +22,12 @@ def load_fasta(seqFn, rem_tVersion=False, load_annotation=False):
             if cur_seq != '':
                 fasta[cur_tid] = cur_seq
                 cur_seq = ''
-            data = line[1:].split(None, 1)
+            data = line[1:-1].split(None, 1)
             cur_tid = data[0]
             annotation[cur_tid] = data[1] if len(data)==2 else ""
             if rem_tVersion and '.' in cur_tid: 
                 cur_tid = ".".join(cur_tid.split(".")[:-1])
-        else:
+        elif cur_tid != '':
             cur_seq += line.rstrip()
     
     if cur_seq != '':
@@ -636,7 +636,9 @@ def Run_catchKI(command, folder_list):
     Run shell command, if Ctrl+C, then remove folders in folder_list
     """
     import signal
-    if os.system(command) == signal.SIGINT:
+    sig = os.system(command)
+    if sig == signal.SIGINT:
         for folder in folder_list:
             shutil.rmtree(folder)
         raise RuntimeError("Ctrl + C KeyboardInterrupt.")
+    return sig
