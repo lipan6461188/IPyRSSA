@@ -175,7 +175,7 @@ def annotate_seq(Fasta, genome_blastn_db, Gaper, verbose=True, threads=10):
 ####################################
 
 class BlastNHit_V2:
-    def __init__(self,bit_score,score,evalue,query_from,query_to,hit_acc,hit_from,hit_to,hit_strand, \
+    def __init__(self,bit_score,score,evalue,query_from,query_to,hit_acc,hit_def,hit_from,hit_to,hit_strand, \
                     identity,gap,align_len,match_qseq,match_tseq,align_pat):
         self.bit_score = bit_score
         self.score = score
@@ -183,6 +183,7 @@ class BlastNHit_V2:
         self.query_from = query_from
         self.query_to = query_to
         self.hit_acc = hit_acc
+        self.hit_def = hit_def
         self.hit_from = hit_from
         self.hit_to = hit_to
         self.hit_strand = hit_strand
@@ -218,6 +219,10 @@ def read_blast_result_xml(blastn_xml):
         Hit_List = []
         for hit in hits:
             hit_acc = getChildValue(hit, 'Hit_id').split()[0]
+            try:
+                hit_def = getChildValue(hit, 'Hit_def')
+            except:
+                hit_def = 'None'
             Hsps = hit.getElementsByTagName("Hsp")
             for hsp in Hsps:
                 bit_score = float(getChildValue(hsp, 'Hsp_bit-score'))
@@ -238,7 +243,7 @@ def read_blast_result_xml(blastn_xml):
                 match_qseq = getChildValue(hsp, 'Hsp_qseq')
                 match_tseq = getChildValue(hsp, 'Hsp_hseq')
                 align_pat = getChildValue(hsp, 'Hsp_midline')
-                new_hit = BlastNHit_V2(bit_score,score,evalue,query_from,query_to,hit_acc,hit_from,hit_to,hit_strand,identity,gap,align_len,match_qseq,match_tseq,align_pat)
+                new_hit = BlastNHit_V2(bit_score,score,evalue,query_from,query_to,hit_acc,hit_def,hit_from,hit_to,hit_strand,identity,gap,align_len,match_qseq,match_tseq,align_pat)
                 Hit_List.append(new_hit)
     
     return Hit_List
@@ -246,7 +251,8 @@ def read_blast_result_xml(blastn_xml):
 def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
     perc_identity=90, strand="both", # Only for blastn
     evalue=10, maxhit=500,  task=None, # For blastn and blastp
-    clear=True, verbose=False, threads=1, use_LSF=False, LSF_parameters={}):
+    word_size=6, gapopen=10, gapextend=2, clear=True, verbose=False, 
+    threads=1, use_LSF=False, LSF_parameters={}, use_SLURM=False, SLURM_parameters={}):
     """
     Blastn a sequence or sequences and return a list of BlastNHit_V2
     
@@ -265,6 +271,8 @@ def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
     threads                 -- How many threads to use
     use_LSF                 -- Submit to LSF if True
     LSF_parameters          -- { 'queue': 'Z-ZQF', 'cpu': 20, 'job_name': 'cmsearch', 'logFn': '/dev/null', 'errFn': '/dev/null' }
+    use_SLURM               -- Submit to SLURM if True
+    SLURM_parameters        -- { 'partition': 'normal02', 'job_name': 'blast', 'logFn': '/dev/null', 'errFn': '/dev/null' }
     
     Return: [ BlastNHit_V2, BlastNHit_V2,... ]
     
@@ -285,7 +293,7 @@ def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
     if type(query_seq) is not str:
         raise RuntimeError("Error: parameter query_seq should a sequence")
     
-    if use_LSF:
+    if use_LSF or use_SLURM:
         tmpdir = tempfile.mkdtemp(prefix="blast_", dir=os.path.join(os.environ['HOME'],'tmp'))
     else:
         tmpdir = tempfile.mkdtemp(prefix="blast_")
@@ -300,9 +308,9 @@ def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
         task = 'megablast' if seqtype=='nucl' else 'blastp'
     
     if seqtype=='nucl':
-        cmd = f"{blastn} -query {tmp_query_fa} -strand {strand} -task {task} -db {blastdb} -out {tmp_balst_xml} -outfmt 5 -max_hsps 15 -num_threads {threads} -perc_identity {perc_identity} -evalue {evalue} -max_target_seqs {maxhit}"
+        cmd = f"{blastn} -word_size {word_size} -gapopen {gapopen} -gapextend {gapextend} -query {tmp_query_fa} -strand {strand} -task {task} -db {blastdb} -out {tmp_balst_xml} -outfmt 5 -max_hsps 15 -num_threads {threads} -perc_identity {perc_identity} -evalue {evalue} -max_target_seqs {maxhit}"
     if seqtype=='protein':
-        cmd = f"{blastp} -query {tmp_query_fa} -task {task} -db {blastdb} -out {tmp_balst_xml} -outfmt 5 -max_hsps 15 -num_threads {threads} -evalue {evalue} -max_target_seqs {maxhit}"
+        cmd = f"{blastp} -word_size {word_size} -gapopen {gapopen} -gapextend {gapextend} -query {tmp_query_fa} -task {task} -db {blastdb} -out {tmp_balst_xml} -outfmt 5 -max_hsps 15 -num_threads {threads} -evalue {evalue} -max_target_seqs {maxhit}"
     
     if use_LSF:
         import Cluster
@@ -316,6 +324,24 @@ def blast_sequence_V2(query_seq, blastdb, seqtype='nucl',
             print(Colors.f(job.get_submit_command(), fc='yellow'))
         job.submit()
         job.wait()
+    elif use_SLURM:
+        partition = SLURM_parameters.get('partition', 'normal02')
+        job_name = SLURM_parameters.get('job_name', 'Alignment.blast_sequence_V2')
+        logFn = SLURM_parameters.get('logFn', None)
+        errFn = SLURM_parameters.get('errFn', None)
+        slurm_cmd = f"srun -p {partition} -J {job_name} -c {threads} "
+        if logFn:
+            slurm_cmd += "-o {logFn} "
+        if errFn:
+            slurm_cmd += "-e {logFn} "
+        slurm_cmd += cmd
+        if verbose:
+            print(Colors.f(slurm_cmd, fc='yellow'))
+        _ = os.system(slurm_cmd)
+        #from multiprocessing import Process
+        #job = Process(slurm_cmd)
+        #job.start()
+        #job.join()
     else:
         if verbose:
             print(Colors.f(cmd, fc='yellow'))

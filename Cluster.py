@@ -48,6 +48,7 @@ job2.submit()
 
 import os, sys, random, re, time
 import General, subprocess, Colors
+from typing import List, Optional
 
 if 'getstatusoutput' in dir(subprocess):
     from subprocess import getstatusoutput
@@ -287,6 +288,155 @@ def new_job(command, queue="Z-ZQF", cpu=1, job_name="", logFn="", errFn=""):
         job.set_error_file(errFn)
     
     return job
+
+
+def slurm_build_dep_chain(cmd_list: List[str], 
+                    name_list: Optional[List[str]] = None, 
+                    num_chain: int = 1, 
+                    cpu: int = 1,
+                    gpu: int = 0,
+                    partition: Optional[str] = None,
+                    node: Optional[str] = None,
+                    job_pref: Optional[str] = None, 
+                    sleep: float = 2, 
+                    shuffle: bool = False):
+    """
+    Run commands with dependence chain
+    
+    Parameters
+    -------------------
+    cmd_list: List of bash commands
+    name_list: List of job name postfix
+    num_chain: Number of dependence chain
+    cpu: Number of CPU
+    gpu: Number of GPU
+    partition: Partition name
+    node: Node name
+    job_pref: Job name prefix, random str if not specified
+    sleep: Sleep time
+    shuffle: If shuffle all jobs
+
+    Return
+    -------------------
+    chain_job_id_list: List[List[int]]
+        Slurm job ID
+    """
+    import os, sys, subprocess, time, re, random, string, shutil
+    import numpy as np
+    
+    assert shutil.which("squeue") is not None
+
+    num_jobs = len(cmd_list)
+    assert num_chain >= 1
+    assert num_chain <= num_jobs
+    if name_list is not None:
+        assert num_jobs == len(name_list)
+    else:
+        name_list = [ str(idx) for idx in np.arange(num_jobs) ]
+    
+    if job_pref is None:
+        job_pref = "".join([ random.choice(string.ascii_letters) for _ in range(5) ])
+    
+    def get_last_pid():
+        USER = os.environ['USER']
+        cmd = f"squeue -o \"%.18i %.9P %.28j\" -u {USER} --states=all -S V | grep {job_pref} | tail -n 1 | awk '{{print $1}}'"
+        pid = subprocess.getoutput(cmd)
+        if len(pid) > 0:
+            pid = int(pid)
+            return pid
+        else:
+            return None
+    
+    if shuffle:
+        index = np.arange(num_jobs)
+        np.random.shuffle(index)
+        cmd_list  = [ cmd_list[d] for d in index ]
+        name_list = [ name_list[d] for d in index ]
+    
+    chain_size = int(np.ceil(num_jobs / num_chain))
+    
+    all_chain_pid_list = []
+    chain_pid_list = []
+    
+    pid = None
+    for idx in range(num_jobs):
+        cmd  = cmd_list[idx]
+        name = name_list[idx]
+        srun_cmd = f"srun -J {job_pref}_{name} -c {cpu} --gres=gpu:{gpu}"
+        if partition:
+            srun_cmd += f" -p {partition}"
+        if node:
+            srun_cmd += f" -w {node}"
+        if pid:
+            srun_cmd += f" -d afterany:{pid} {cmd} &"
+        else:
+            srun_cmd += f" {cmd} &"
+        print(srun_cmd)
+        os.system(srun_cmd)
+        if pid is None:
+            time.sleep(sleep*2)
+        else:
+            time.sleep(sleep)
+        pid = get_last_pid()
+        chain_pid_list.append(pid)
+        
+        if (idx + 1) % chain_size == 0:
+            pid = None
+            all_chain_pid_list.append(chain_pid_list)
+            chain_pid_list = []
+    
+    if len(chain_pid_list) > 0:
+        all_chain_pid_list.append(chain_pid_list)
+     
+    return all_chain_pid_list
+
+def print_slurm_dep_chain():
+    """
+    Print depedence chain
+    """
+    import os, subprocess
+    
+    cmd = f"squeue -u {os.environ['USER']} | sed '1,1d' | awk '{{print $1}}'"
+    job_id_list = [ int(job_id) for job_id in subprocess.getoutput(cmd).strip().split() ]
+    
+    def get_job_dep(job_id):
+        job_id = int(job_id)
+        dep = None
+        for line in subprocess.getoutput(f"scontrol show job {job_id}").split('\n'):
+            if 'Dependency=' in line:
+                line = line.strip()
+                idx = line.index('Dependency=')
+                dep = line[idx+11:].strip()
+                if len(dep) == 0 or dep == '(null)':
+                    return None
+                assert ':' in dep, dep
+                dep = dep.split(':')[1]
+                break
+        if dep is not None:
+            dep = int(dep)
+        return dep
+    
+    job_dep_list = [ get_job_dep(job_id) for job_id in job_id_list ]
+    
+    chains = []
+    for job_idx, job_id in enumerate(job_id_list):
+        if job_id not in job_dep_list:
+            chain = [job_id]
+            while job_dep_list[job_idx] is not None:
+                chain.append(job_dep_list[job_idx])
+                job_idx = job_id_list.index(job_dep_list[job_idx])
+            chains.append(chain[::-1])
+    
+    for ch_idx, chain in enumerate(chains):
+        print( f"Chain {ch_idx}:", "->".join([str(ch) for ch in chain]) )
+
+
+
+# sacct -S 16:40:00 -o "JobID,JobName%30,state" | less
+
+# sacct -o "JobID,JobName%30,state" | less
+
+
 
 
 
