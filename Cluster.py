@@ -46,9 +46,10 @@ job2.submit()
 
 """
 
-import os, sys, random, re, time
-import General, subprocess, Colors
+import os, sys, random, re, time, subprocess, shutil, tempfile
+from . import General, Colors
 from typing import List, Optional
+from multiprocessing import Pool
 
 if 'getstatusoutput' in dir(subprocess):
     from subprocess import getstatusoutput
@@ -60,7 +61,14 @@ try:
     bsub = General.require_exec("bsub", warning="", exception=True)
     bjobs = General.require_exec("bjobs", warning="", exception=True)
 except NameError:
-    print(Colors.f("Error: bkill not found in PATH, Cluster module cannot be used",fc='red'))
+    #print(Colors.f("Error: bkill not found in PATH",fc='red'))
+    pass
+
+try:
+    srun = General.require_exec("srun", warning="", exception=True)
+except NameError:
+    #print(Colors.f("Error: srun not found in PATH",fc='red'))
+    pass
 
 def host_name():
     return os.environ['HOSTNAME']
@@ -394,6 +402,7 @@ def print_slurm_dep_chain():
     """
     Print depedence chain
     """
+    assert shutil.which('squeue') is not None
     import os, subprocess
     
     cmd = f"squeue -u {os.environ['USER']} | sed '1,1d' | awk '{{print $1}}'"
@@ -430,16 +439,294 @@ def print_slurm_dep_chain():
     for ch_idx, chain in enumerate(chains):
         print( f"Chain {ch_idx}:", "->".join([str(ch) for ch in chain]) )
 
+def get_slurm_node_resource(node):
+    output = subprocess.getoutput(f"scontrol show nodes {node}")
+    for line in output.split('\n'):
+        line = line.strip()
+        if line.startswith('CfgTRES'):
+            total_cpu_num = int(re.findall(r"CfgTRES=cpu=(\d+)", line)[0])
+            try:
+                total_gpu_num = int(re.findall(r"gres/gpu\S*=(\d+)", line)[0])
+            except:
+                total_gpu_num = 0
+        elif line.startswith('AllocTRES'):
+            try:
+                used_cpu_num = int(re.findall(r"AllocTRES=cpu=(\d+)", line)[0])
+            except:
+                used_cpu_num = 0
+            try:
+                used_gpu_num = int(re.findall(r"gres/gpu\S*=(\d+)", line)[0])
+            except:
+                used_gpu_num = 0
+    return {
+        'total_cpu_num': total_cpu_num,
+        'total_gpu_num': total_gpu_num,
+        'used_cpu_num': used_cpu_num,
+        'used_gpu_num': used_gpu_num
+    }
 
+def get_slurm_resource():
+    """
+    Get SLURM Resource
+    
+    Return
+    ------------
+    partition2nodeResource: Dict of partition -> node -> resource dict
+    """
+    assert shutil.which('scontrol') is not None
+    partition2nodes = {}
+    for line in os.popen("scontrol show node"):
+        if line.startswith("NodeName="):
+            node = re.findall(r"NodeName=([\d\w]+)", line)[0]
+        if 'Partitions=' in line:
+            partition = re.findall(r"Partitions=([\d\w]+)", line)[0]
+            partition2nodes[partition] = partition2nodes.get(partition, []) + [node]
+    partition2nodeResource = {}
+    for partition, nodes in partition2nodes.items():
+        partition2nodeResource[partition] = {}
+        resource = {}
+        for node in nodes:
+            node_resource = get_slurm_node_resource(node)
+            #for it in resource_new:
+            #    resource[it] = resource.get(it, 0) + resource_new[it]
+            partition2nodeResource[partition][node] = node_resource
+    return partition2nodeResource
 
-# sacct -S 16:40:00 -o "JobID,JobName%30,state" | less
+def get_slurm_used_gpu_dict():
+    """
+    Return dict of used GPUs --  { 'gpu01': [1,2,3], ... }
+    """
+    info = subprocess.getoutput( "scontrol show job -d | grep \"gpu(IDX:\"" )
+    info = [ line.strip() for line in info.split('\n') ]
+    
+    def parse_line_info(line):
+        """ 
+        Input can be 
+            Nodes=gpu05 CPU_IDs=2-3 Mem=0 GRES_IDX=gpu(IDX:1-4)
+        Or
+            Nodes=gpu[04-07] CPU_IDs=0-47 Mem=0 GRES=gpu(IDX:0-7)
+        Or
+            Nodes=gpu[01-02,04,06] CPU_IDs=0-55 Mem=0 GRES=gpu(IDX:0-7)
+        """
+        gpu_id = re.findall(r"Nodes=([\w\d\[\]\-\,]+)", line)[0]
+        gpu_devices = re.findall(r"gpu\(IDX:(.*)\)", line)[0]
+        devices = []
+        for device_reg in gpu_devices.split(','):
+            if '-' in device_reg:
+                start, end = device_reg.split('-')
+                start, end = int(start), int(end)
+                for i in range(start,end+1):
+                    devices.append(i)
+            else:
+                devices.append(int(device_reg))
+        gpu_id_list = [  ]
+        if '[' in gpu_id or ']' in gpu_id:
+            assert ']' in gpu_id and ']' in gpu_id
+            s = gpu_id.find('[')
+            e = gpu_id.find(']')
+            prefix = gpu_id[ : s ]
+            gpu_range_list = gpu_id[ s+1: e ].split(',')
+            for gpu_range in gpu_range_list:
+                if '-' in gpu_range:
+                    gpu_s_str, gpu_e_str = gpu_range.split('-')
+                    gpu_s, gpu_e = int(gpu_s_str), int(gpu_e_str)
+                    for i in range(gpu_s, gpu_e+1):
+                        i = str(i)
+                        single_gpu_id = prefix + i.zfill( len(gpu_s_str) )
+                        gpu_id_list.append( single_gpu_id )
+                else:
+                    single_gpu_id = prefix + gpu_range
+                    gpu_id_list.append( single_gpu_id )
+        else:
+            gpu_id_list = [ gpu_id ]
+        return gpu_id_list, devices
+    
+    gpu_used_devs = {}
+    for line in info:
+        if line == "":
+            continue
+        gpu_id_list, gpu_devices = parse_line_info(line)
+        for gpu_id in gpu_id_list:
+            gpu_used_devs[gpu_id] = gpu_used_devs.get(gpu_id, []) + gpu_devices
+    
+    for gpu_id in gpu_used_devs:
+        gpu_used_devs[gpu_id].sort()
+    
+    return gpu_used_devs
 
-# sacct -o "JobID,JobName%30,state" | less
+def print_slurm_resource():
+    """
+    Print SLURM resouce to screen
+    """
+    assert shutil.which('scontrol') is not None
+    partition2nodeResource = get_slurm_resource()
+    # print(f"{'Partition':<19s}{'GPU Free/Total'}{' '*20}{'CPU Free/Total'}{' '*20}Nodes")
+    print(f"{'Partition':<19s}{'Node':<19s}{'GPU Free/Total'}{' '*20}{'CPU Free/Total'}{' '*20}")
+    for partition in partition2nodeResource:
+        nodeResource = partition2nodeResource[partition]
+        for node in nodeResource:
+            res = nodeResource[node]
+            cpu_tol, cpu_used = res['total_cpu_num'], res['used_cpu_num']
+            gpu_tol, gpu_used = res['total_gpu_num'], res['used_gpu_num']
+            print(f"{partition:<19s}{node:<19s}{gpu_tol-gpu_used:7d}/{gpu_tol:<7d}{' '*20}{cpu_tol-cpu_used:7d}/{cpu_tol:<7d}{' '*20}")
+            
+            # res = partition2resource[partition]
+            # nodes = partition2nodes[partition]
+            # nodes = ",".join(nodes)
+            # cpu_tol, cpu_used = res['total_cpu_num'], res['used_cpu_num']
+            # gpu_tol, gpu_used = res['total_gpu_num'], res['used_gpu_num']
+            # print(f"{partition:<19s}{gpu_tol-gpu_used:7d}/{gpu_tol:<7d}{' '*20}{cpu_tol-cpu_used:7d}/{cpu_tol:<7d}{' '*20}{nodes}")
 
+##################################
+#### Multi-GPU for Shell Commands
+##################################
 
+def run_cmd_auto_gpu(cmd, gpu_list, state_dir_name):
+    gpu_dev = None
+    gpu_exists_file = None
+    time.sleep( round(random.random(), 3)*2 )
+    for gpu_idx in gpu_list:
+        gpu_exists_file = os.path.join(state_dir_name, str(gpu_idx))
+        if not os.path.exists(gpu_exists_file):
+            open(gpu_exists_file, 'a').close()
+            while not os.path.exists(gpu_exists_file):
+                time.sleep(0.5)
+            gpu_dev = gpu_idx
+            break
+    assert gpu_dev is not None, f"Expect one of gpu devices {gpu_list} exists in {state_dir_name}"
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_dev)
+    # cmd = f"CUDA_VISIBLE_DEVICES={gpu_dev} "+cmd
+    print('CUDA_VISIBLE_DEVICES:', gpu_dev, cmd)
+    os.system(cmd)
+    if os.path.exists(gpu_exists_file):
+        os.remove(gpu_exists_file)
+    else:
+        print(f"Warning: {gpu_exists_file} not exists")
 
+class Multi_GPU_CMD:
+    """
+    cmd_list = ['sleep 10'] * 10
+    runner = Multi_GPU_CMD([1,2,3], cmd_list)
+    runner.run()
+    """
+    def __init__(self, gpu_list, cmd_list, state_dir_name=None):
+        self.gpu_list = gpu_list
+        if state_dir_name is None:
+            self.state_dir_name = tempfile.mkdtemp(prefix='multigpu_')
+            self.state_dir_type = 'generated'
+        else:
+            self.state_dir_name = state_dir_name
+            self.state_dir_type = 'specified'
+        print("state_dir_name:", self.state_dir_name)
+        self.cmd_list = cmd_list
+    
+    def run(self):
+        assert isinstance(self.cmd_list, (list, tuple)), self.cmd_list
+        for cmd in self.cmd_list:
+            assert isinstance(cmd, str), cmd
+        assert isinstance(self.gpu_list, list), self.gpu_list
+        for gpu in self.gpu_list:
+            assert isinstance(gpu, int), gpu
+        num_proc = len(self.gpu_list)
+        with Pool(num_proc) as pool:
+            h_list = []
+            for cmd in self.cmd_list:
+                h = pool.apply_async(run_cmd_auto_gpu, (cmd, self.gpu_list, self.state_dir_name))
+                h_list.append([cmd, h])
+            for cmd, h in h_list:
+                print(cmd)
+                _ = h.get()
+    
+    def __del__(self):
+        if self.state_dir_type == 'generated':
+            shutil.rmtree(self.state_dir_name)
 
+##################################
+#### Multi-GPU for Python Function
+##################################
 
+def run_pyfunc_auto_gpu(pyfunc, args, kwargs, gpu_param_name, gpu_list, state_dir_name):
+    
+    if args is None:
+        args = []
+    if kwargs is None:
+        kwargs = {}
+    if gpu_param_name is not None:
+        assert gpu_param_name not in kwargs, f"{gpu_param_name} should not in kwargs"
+    
+    gpu_dev = None
+    gpu_exists_file = None
+    time.sleep( round(random.random(), 3)*2 )
+    for gpu_idx in gpu_list:
+        gpu_exists_file = os.path.join(state_dir_name, str(gpu_idx))
+        if not os.path.exists(gpu_exists_file):
+            open(gpu_exists_file, 'a').close()
+            while not os.path.exists(gpu_exists_file):
+                time.sleep(0.5)
+            gpu_dev = gpu_idx
+            break
+    assert gpu_dev is not None, f"Expect one of gpu devices {gpu_list} exists in {state_dir_name}"
+    if gpu_param_name is not None:
+        kwargs[gpu_param_name] = gpu_dev
+    else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_dev)
+    output = pyfunc(*args, **kwargs)
+    if os.path.exists(gpu_exists_file):
+        os.remove(gpu_exists_file)
+    else:
+        print(f"Warning: {gpu_exists_file} not exists")
+    return output
 
+class Multi_GPU_PYFUNC:
+    """
+    args_list = [[10]] * 10
+    kwargs_list = None
+    runner = Multi_GPU_PYFUNC([1,2,3], time.sleep, None, args_list, kwargs_list)
+    runner.run()
+    """
+    def __init__(self, gpu_list, pyfunc, gpu_param_name, args_list, kwargs_list, state_dir_name=None):
+        #print('args_list:', args_list)
+        #print('kwargs_list:', kwargs_list)
+        if args_list is None and kwargs_list is None:
+            raise RuntimeError("At least one of args_list and kwargs_list should be sepcified")
+        if args_list is None:
+            args_list = [[] for _ in range(len(kwargs_list))]
+        if kwargs_list is None:
+            kwargs_list = [{} for _ in range(len(args_list))]
+        assert len(args_list) == len(kwargs_list), f"Expect same length, but got {len(args_list)} and {len(kwargs_list)}"
+        
+        if state_dir_name is None:
+            self.state_dir_name = tempfile.mkdtemp(prefix='multigpu_')
+            self.state_dir_type = 'generated'
+        else:
+            self.state_dir_name = state_dir_name
+            self.state_dir_type = 'specified'
+        print("state_dir_name:", self.state_dir_name)
+        self.pyfunc      = pyfunc
+        self.gpu_param_name = gpu_param_name
+        self.gpu_list    = gpu_list
+        self.args_list   = args_list
+        self.kwargs_list = kwargs_list
+        assert isinstance(self.args_list, (list, tuple)), self.args_list
+        assert isinstance(self.kwargs_list, (list, tuple)), self.kwargs_list
+        assert isinstance(self.gpu_list, (list, tuple)), self.gpu_list
+        for gpu in self.gpu_list:
+            assert isinstance(gpu, int), gpu
+    
+    def run(self):
+        num_proc = len(self.gpu_list)
+        output_list = []
+        with Pool(num_proc) as pool:
+            h_list = []
+            for args, kwargs in zip(self.args_list, self.kwargs_list):
+                h = pool.apply_async(run_pyfunc_auto_gpu, (self.pyfunc, args, kwargs, self.gpu_param_name, self.gpu_list, self.state_dir_name))
+                h_list.append(h)
+            for h in h_list:
+                output_list.append(h.get())
+        return output_list
+    
+    def __del__(self):
+        if self.state_dir_type == 'generated':
+            shutil.rmtree(self.state_dir_name)
 
 

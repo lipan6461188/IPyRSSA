@@ -8,7 +8,15 @@ def warn_f(text):
     return "\x1b["+code+"m"+text+"\x1b[0m"
  
 print(f"(run {__file__})")
-import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections, pickle, io, gzip
+import os, sys, time, re, random, pickle, copy, gzip, io, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string
+from multiprocessing import Pool
+from os.path import exists, join, getsize, isdir, abspath
+from typing import Dict, Union, Optional, List, Tuple, Mapping
+import numpy  as np
+import pandas as pd
+from pathlib import Path
+from tqdm.auto import tqdm, trange
+# import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections, pickle, io, gzip, json
 def import_module(model_name, from_import_name=None):
     try:
         module = importlib.import_module(model_name)
@@ -29,13 +37,22 @@ def import_module(model_name, from_import_name=None):
     else:
         return module
 
-global Colors, Structure, Visual, General, Alignment, Covariation, GAP, FFindex
+global Colors, Structure, Visual, General, Alignment, Cluster, GAP, FFindex, Covariation
 Colors = import_module("Colors")
 Structure = import_module("Structure")
 Visual = import_module("Visual")
 General = import_module("General")
 Alignment = import_module("Alignment")
-Covariation = import_module("Covariation")
+Cluster = import_module("Cluster")
+if Colors is None:
+    Colors = import_module("IPyRSSA", "Colors")
+    Structure = import_module("IPyRSSA", "Structure")
+    Visual = import_module("IPyRSSA", "Visual")
+    General = import_module("IPyRSSA", "General")
+    Alignment = import_module("IPyRSSA", "Alignment")
+    Cluster = import_module("IPyRSSA", "Cluster")
+
+
 GAP = import_module("GAP")
 reload = import_module("imp", "reload")
 FFindex = import_module("FFindex", "FFindex")
@@ -49,7 +66,7 @@ else:
     import subprocess
     getoutput = subprocess.getoutput
 
-print("(import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections, pickle, io, gzip)")
+print("(import os, sys, time, re, random, pickle, copy, gzip, io, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib)")
 print("(import Colors, Structure, Visual, General, Alignment, Covariation, GAP)")
 print("(from imp import reload)")
 
@@ -58,8 +75,8 @@ print("(from imp import reload)")
 from os import environ as env
 HOME = env['HOME']
 TEMP = tempfile.gettempdir()
-global join
-join = os.path.join
+STDOUT = sys.stdout
+STDERR = sys.stderr
 
 print("importCommon() to import more common modules")
 def importCommon():
@@ -75,10 +92,9 @@ def importCommon():
     global copy
     global datetime
     global subprocess
-    global Pool
+    #global Pool
     global partial
     global reload
-    global tqdm
     global _pickle
     global IPython
     global clear_output
@@ -86,27 +102,26 @@ def importCommon():
     global flush
     global plot_decision_regions
     
-    getopt = import_module("getopt")
-    random = import_module("random")
-    os = import_module("os")
-    math = import_module("math")
-    re = import_module("re")
-    sys = import_module("sys")
-    time = import_module("time")
-    tempfile = import_module("tempfile")
-    copy = import_module("copy")
-    datetime = import_module("datetime")
-    subprocess = import_module("subprocess")
-    Pool = import_module("multiprocessing", "Pool")
-    partial = import_module("functools", "partial")
-    reload = import_module("imp", "reload")
-    tqdm = import_module("tqdm.auto", "tqdm")
-    _pickle = import_module("_pickle")
-    IPython = import_module("IPython")
-    clear_output = import_module("IPython.display", "clear_output")
-    h5py = import_module("h5py")
-    flush = sys.stdout.flush
-    plot_decision_regions = import_module("mlxtend.plotting", "plot_decision_regions")
+    getopt                  = import_module("getopt")
+    random                  = import_module("random")
+    os                      = import_module("os")
+    math                    = import_module("math")
+    re                      = import_module("re")
+    sys                     = import_module("sys")
+    time                    = import_module("time")
+    tempfile                = import_module("tempfile")
+    copy                    = import_module("copy")
+    datetime                = import_module("datetime")
+    subprocess              = import_module("subprocess")
+    #Pool                    = import_module("multiprocessing", "Pool")
+    partial                 = import_module("functools", "partial")
+    reload                  = import_module("imp", "reload")
+    _pickle                 = import_module("_pickle")
+    IPython                 = import_module("IPython")
+    clear_output            = import_module("IPython.display", "clear_output")
+    h5py                    = import_module("h5py")
+    flush                   = sys.stdout.flush
+    plot_decision_regions   = import_module("mlxtend.plotting", "plot_decision_regions")
 
     ### Image
     global sns
@@ -117,14 +132,14 @@ def importCommon():
     global PdfPages
     global venn2, venn3
     
-    sns = import_module("seaborn")
-    matplotlib = import_module("matplotlib")
-    Patch = import_module("matplotlib.patches", "Patch")
-    Line2D = import_module("matplotlib.lines", "Line2D")
-    plt = import_module("matplotlib.pyplot")
-    PdfPages = import_module("matplotlib.backends.backend_pdf", "PdfPages")
-    venn2 = import_module("matplotlib_venn", 'venn2')
-    venn3 = import_module("matplotlib_venn", 'venn3')
+    sns         = import_module("seaborn")
+    matplotlib  = import_module("matplotlib")
+    Patch       = import_module("matplotlib.patches", "Patch")
+    Line2D      = import_module("matplotlib.lines", "Line2D")
+    plt         = import_module("matplotlib.pyplot")
+    PdfPages    = import_module("matplotlib.backends.backend_pdf", "PdfPages")
+    venn2       = import_module("matplotlib_venn", 'venn2')
+    venn3       = import_module("matplotlib_venn", 'venn3')
     
     plt.rc('font', family='Helvetica')
     plt.rcParams['pdf.fonttype'] = 42
@@ -135,36 +150,36 @@ def importCommon():
     global scipy
     global statsmodels, multicomp
     
-    pd = import_module("pandas")
-    tabulate = import_module("tabulate", "tabulate")
-    numpy = import_module("numpy")
-    np = import_module("numpy")
-    scipy = import_module("scipy")
+    pd          = import_module("pandas")
+    tabulate    = import_module("tabulate", "tabulate")
+    numpy       = import_module("numpy")
+    np          = import_module("numpy")
+    scipy       = import_module("scipy")
     statsmodels = import_module("statsmodels")
-    multicomp = import_module("statsmodels.sandbox.stats.multicomp")
+    multicomp   = import_module("statsmodels.sandbox.stats.multicomp")
     
     ### IPySSSA
-    global Colors
-    global Structure
-    global Visual
-    global General
-    global Seq
-    global Cluster
-    global Figures
-    global Rosetta
+    #global Colors
+    #global Structure
+    #global Visual
+    #global General
+    #global Seq
+    #global Cluster
+    #global Figures
+    #global Rosetta
     
-    Colors = import_module("Colors")
-    Structure = import_module("Structure")
-    Visual = import_module("Visual")
-    General = import_module("General")
-    Seq = import_module("Seq")
-    Cluster = import_module("Cluster")
-    Figures = import_module("Figures")
-    try:
-        Rosetta = import_module("D3", "Rosetta")
-    except RuntimeError:
-        print("import Rosetta failed")
-        Rosetta = None
+    #Colors = import_module("Colors")
+    #Structure = import_module("Structure")
+    #Visual = import_module("Visual")
+    #General = import_module("General")
+    #Seq = import_module("Seq")
+    #Cluster = import_module("Cluster")
+    #Figures = import_module("Figures")
+    #try:
+    #    Rosetta = import_module("D3", "Rosetta")
+    #except RuntimeError:
+    #    print("import Rosetta failed")
+    #    Rosetta = None
     
     ### GAP
     global GAP
@@ -197,11 +212,15 @@ def importCommon():
     global pyBigWig
     global cmap_parse
     global cmap_write
+    global mrcfile
+    global SVDSuperimposer
     
-    pysam = import_module("pysam")
-    pyBigWig = import_module("pyBigWig")
+    pysam      = import_module("pysam")
+    pyBigWig   = import_module("pyBigWig")
     cmap_parse = import_module("cmapPy.pandasGEXpress.parse", "parse")
     cmap_write = import_module("cmapPy.pandasGEXpress.write_gctx", "write")
+    mrcfile    = import_module('mrcfile')
+    SVDSuperimposer = import_module("Bio.SVDSuperimposer", 'SVDSuperimposer')
 
     ### Random Seed
     #np.random.seed(1216)
@@ -228,7 +247,7 @@ def import_tf2(set_visible_gpu=False, visible_gpu_id=-1):
     v1 = import_module("tensorflow.compat.v1")
 
     gpus = tf.config.experimental.list_physical_devices("GPU")
-    print( Colors.f(f"list_physical_devices GPUs: {gpus}", fc='yellow') )
+    print( warn_f(f"list_physical_devices GPUs: {gpus}") )
     if set_visible_gpu:
         tf.config.experimental.set_visible_devices([gpus[visible_gpu_id]], "GPU")
         tf.config.experimental.set_memory_growth(gpus[visible_gpu_id], True)
@@ -242,7 +261,33 @@ def import_torch():
     global nn
     global F
     
-    torch = import_module("torch")
-    nn = import_module("nn", "torch")
-    F = import_module("torch.nn.functional")
+    torch   = import_module("torch")
+    nn      = import_module("nn", "torch")
+    F       = import_module("torch.nn.functional")
+
+
+print("import_pdb() to import PDB related functions")
+def import_pdb():
+    global pdb_data
+    global pdb_features
+    global af2_features
+    global DensityInfo
+    global AF2_Prot_Module
+    global AF2_Protein
+    global rc
+    global Kalign
+    
+    pdb_data        = import_module("pdb_data")
+    pdb_features    = import_module("pdb_features")
+    af2_features    = import_module("af2_features")
+    
+    if pdb_data is not None:
+        pdb_data.init_metadata()
+    
+    DensityInfo     = import_module("cryonet.libs.structure.density", "DensityInfo")
+    AF2_Prot_Module = import_module("alphafold.common", "protein")
+    AF2_Protein     = import_module("alphafold.common.protein")
+    rc              = import_module("alphafold.common", "residue_constants")
+    Kalign          = import_module("alphafold.data.tools", "kalign")
+
 

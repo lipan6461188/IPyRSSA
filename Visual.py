@@ -8,13 +8,13 @@ export VARNA=[PATH to VARNAv3-93.jar]
 
 """
 
-import os, sys, random, platform
-import Colors
+import os, sys, random, platform, shutil, tempfile, subprocess
+from . import Colors
 
 if 'VARNA' in os.environ:
     VARNAProg = os.environ['VARNA']
 else:
-    import Colors
+    from . import Colors
     sys.stderr.writelines( Colors.f("Warning: VARNA variable not found, please specify",fc="red",bc="white",ft="blink") + "\n" )
     VARNAProg = "/Users/lee/Documents/VARNAv3-93.jar"
 
@@ -646,6 +646,89 @@ def visual_structure_entropy(sequence, shape_list=None, si=-0.6, sm=1.8, md=None
     axs[0].set_ylabel("Shannon Entropy")
     Figures.rainbowPlot(probList, axs[1], length=Len, lw=1)
     return fig, axs
+
+
+
+#####################################
+### Protein Structure Visualization
+#####################################
+
+
+
+class Chimera:
+    """
+    Run UCSF Chimera with python binding
+    
+    Example:
+    
+    chimera = Chimera()
+    chimera_command_list = [
+        'background solid white',
+        'open AF-P54219-F1-model_v4.pdb',
+        'rangecolor bfactor, 50 #f08253 70 #fada4d 90 #7ec9ef 100 #1b57ce',
+        'copy file AF-P54219-F1-model_v4.png png width 800 height 800'
+    ]
+    chimera.run(chimera_command_list, nogui=True)
+    """
+    def __init__(self, chimera_bin=None, work_dir=None, delete_workdir=None):
+        if chimera_bin is None:
+            chimera_bin = shutil.which('chimera')
+        self.chimera_bin = chimera_bin
+        assert os.path.exists(self.chimera_bin), self.chimera_bin
+        if work_dir is None:
+            work_dir = tempfile.mkdtemp(prefix='chimera_')
+            if delete_workdir is None:
+                delete_workdir = True
+        elif delete_workdir is None:
+            delete_workdir = False
+        self.work_dir         = work_dir
+        self.delete_workdir   = delete_workdir
+        self.pre_command_list = ['background solid white']
+        self.post_command_list= []
+    
+    def set_coordinate_system(self, length=100, x_color='red', y_color='green', z_color='blue'):
+        text = f".color {x_color}\n.arrow 0 0 0 {length} 0 0\n.color {y_color}\n.arrow 0 0 0 0 {length} 0\n.color {z_color}\n.arrow 0 0 0 0 0 {length}"
+        coordinate_file = os.path.join(self.work_dir, 'coordinates.bild')
+        print(text, file=open(coordinate_file, 'w'))
+        self.post_command_list.append(f"open {coordinate_file}")
+    
+    def run(self, chimera_command_list, nogui=True, stop_at_end=True):
+        chimera_py_script = tempfile.mktemp(suffix='.py', prefix='chimera_', dir=self.work_dir)
+        with open(chimera_py_script, 'w') as OUT:
+            print("from chimera import runCommand as rc", file=OUT)
+            for cmd in self.pre_command_list:
+                print(f"rc('{cmd}')", file=OUT)
+            for cmd in chimera_command_list:
+                print(f"rc('{cmd}')", file=OUT)
+            for cmd in self.post_command_list:
+                print(f"rc('{cmd}')", file=OUT)
+            if stop_at_end:
+                print("rc('stop now')", file=OUT)
+        cmd = f"{self.chimera_bin} --silent --script {chimera_py_script}"
+        if nogui:
+            cmd += ' --nogui'
+        status, output = subprocess.getstatusoutput(cmd)
+        if status != 0 or len(output) > 0:
+            print("===============UCSF Chimera Error information===============")
+            print(output)
+    
+    def clear(self):
+        if os.path.exists(self.work_dir):
+            shutil.rmtree(self.work_dir)
+    
+    def __del__(self):
+        if self.delete_workdir:
+            self.clear()
+
+
+
+
+
+
+
+
+
+
 
 
 

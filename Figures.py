@@ -248,7 +248,6 @@ def cdf(data, color='black', linestyle='--', label=None):
     plt.ylabel("CDF")
     #plt.grid(True)
 
-
 def annotate(axs, text, location='top left'):
     """
     axs             --  Axis, use plt.gca() to get current axis
@@ -276,7 +275,6 @@ def annotate(axs, text, location='top left'):
         axs.annotate(s=text, xycoords='axes fraction', xy=xy, horizontalalignment='right', verticalalignment='bottom')
     else:
         raise RuntimeError("location Error")
-
 
 def rainbowPlot(probList, ax, length=None, lw=0.8, prob_cutoff=[0.8, 0.3, 0.1, 0.03]):
     """
@@ -325,4 +323,25 @@ def rainbowPlot(probList, ax, length=None, lw=0.8, prob_cutoff=[0.8, 0.3, 0.1, 0
 
 
 
+
+
+
+##########################
+## Matplotlib related functions
+##########################
+
+def set_matplotlib_font(family='normal', weight='normal', size=10):
+    """
+    Get all parameters: matplotlib.rcParams
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+    
+    # raw_font_params = { k:v for k,v in matplotlib.rcParams.items() if k.startswith('font.') }
+    
+    font = {'family' : family,
+            'weight' : weight,
+            'size'   : size}
+
+    matplotlib.rc('font', **font)
 

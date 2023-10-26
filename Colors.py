@@ -237,7 +237,7 @@ def browse_multi_shape(sequence_list, shape_list_list, linelen=200, dot="", shap
     Align and print/compare shape scores in screen
     """
     
-    import General, Structure
+    from IPyRSSA import General, Structure
     
     ### Check the correctness of parameters
     assert len(sequence_list) == len(shape_list_list)

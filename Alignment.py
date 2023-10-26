@@ -1,9 +1,10 @@
 #-*- coding:utf-8 -*-
 
-import os, General, random
+from . import Colors, General
+import os, random
 import tempfile
 from xml.dom import minidom
-import shutil, Colors
+import shutil
 
 ####################################
 #### Blast version 1

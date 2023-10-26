@@ -1,29 +1,41 @@
 #-*- coding:utf-8 -*-
 
-import sys, os, shutil
+import sys, os, shutil, re, logging
 
-def load_fasta(seqFn, rem_tVersion=False, load_annotation=False):
+def load_fasta(seqFn, rem_tVersion=False, load_annotation=False, full_line_as_id=False):
     """
-    seqFn               -- Fasta file
+    seqFn               -- Fasta file or input handle (with readline implementation)
     rem_tVersion        -- Remove version information. ENST000000022311.2 => ENST000000022311
     load_annotation     -- Load sequence annotation
+    full_line_as_id     -- Use the full head line (starts with >) as sequence ID. Can not be specified simutanouly with load_annotation
 
     Return:
         {tid1: seq1, ...} if load_annotation==False
         {tid1: seq1, ...},{tid1: annot1, ...} if load_annotation==True
     """
+    if load_annotation and full_line_as_id:
+        raise RuntimeError("Error: load_annotation and full_line_as_id can not be specified simutanouly")
+    if rem_tVersion and full_line_as_id:
+        raise RuntimeError("Error: rem_tVersion and full_line_as_id can not be specified simutanouly")
+
     fasta = {}
     annotation = {}
     cur_tid = ''
     cur_seq = ''
     
-    for line in open(seqFn):
+    if isinstance(seqFn, str):
+        IN = open(seqFn)
+    elif hasattr(seqFn, 'readline'):
+        IN = seqFn
+    else:
+        raise RuntimeError(f"Expected seqFn: {type(seqFn)}")
+    for line in IN:
         if line[0] == '>':
             if cur_seq != '':
-                fasta[cur_tid] = cur_seq
+                fasta[cur_tid] = re.sub(r"\s", "", cur_seq)
                 cur_seq = ''
             data = line[1:-1].split(None, 1)
-            cur_tid = data[0]
+            cur_tid = line[1:-1] if full_line_as_id else data[0]
             annotation[cur_tid] = data[1] if len(data)==2 else ""
             if rem_tVersion and '.' in cur_tid: 
                 cur_tid = ".".join(cur_tid.split(".")[:-1])
@@ -31,7 +43,7 @@ def load_fasta(seqFn, rem_tVersion=False, load_annotation=False):
             cur_seq += line.rstrip()
     
     if cur_seq != '':
-        fasta[cur_tid] = cur_seq
+        fasta[cur_tid] = re.sub(r"\s", "", cur_seq)
     
     if load_annotation:
         return fasta, annotation
@@ -58,12 +70,14 @@ def load_stockholm(stoFn):
     
     return alignment_list
 
-def write_fasta(fasta, seqFn, annotation={}):
+def write_fasta(fasta, seqFn, annotation={}, line_num=60):
     """
     fasta               -- A dictionary { tid1: seq1, tid2: seq2, ... }
     seqFn               -- Fasta file
     annotation          -- {id1:annot1, ...}
     """
+    if line_num <= 0:
+        line_num = 1_000_000_000_000
     
     OUT = open(seqFn, 'w')
     for tid in fasta:
@@ -74,9 +88,8 @@ def write_fasta(fasta, seqFn, annotation={}):
         full_seq = fasta[tid]
         start = 0
         while start<len(full_seq):
-            print(full_seq[start:start+60], file=OUT)
-            #OUT.writelines(full_seq[start:start+60]+"\n")
-            start+=60
+            print(full_seq[start:start+line_num], file=OUT)
+            start+=line_num
     
     OUT.close()
 
@@ -559,7 +572,6 @@ def roc_curve(dot, shape_list, min_len=15):
         fpr, tpr, thresholds = None, None, None
     return fpr, tpr, thresholds
 
-
 def calc_AUC(ROC):
     """
     ROC                 -- ROC point list
@@ -642,3 +654,123 @@ def Run_catchKI(command, folder_list):
             shutil.rmtree(folder)
         raise RuntimeError("Ctrl + C KeyboardInterrupt.")
     return sig
+
+class ColorFormatter(logging.Formatter):
+    
+    def __init__(self, fmt):
+        
+        from IPyRSSA import Colors
+        self.formats = {
+            logging.DEBUG:    Colors.f(fmt, 'lightgray'),
+            logging.INFO:     Colors.f(fmt, 'lightgray'),
+            logging.WARNING:  Colors.f(fmt, 'yellow'),
+            logging.ERROR:    Colors.f(fmt, 'red', ft='normal'),
+            logging.CRITICAL: Colors.f(fmt, 'red', ft='bold')
+        }
+    
+    def format(self, record):
+        log_fmt   = self.formats.get(record.levelno)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+def get_logger(name=None, file=None, use_color=False):
+    """
+    Get a logger object
+    
+    Parameters
+    ----------------
+    name: The node name
+    file: Output the log to this file
+    use_color: Print log with color
+    
+    Example
+    ----------------
+    logger = get_logger(name='lipan', file='/tmp/1.log', use_color=True)
+    
+    logger.info("this is a information")
+    # [2023-06-20 14:21:04,836::MYTEST::INFO] this is a information
+    
+    logger.debug('this is a debug text')
+    # [2023-06-20 14:24:24,398::MYTEST::DEBUG] this is a debug text
+    
+    logger.warning("this is a warning text")
+    # [2023-06-20 14:21:04,837::MYTEST::WARNING] this is a warning text
+    
+    logger.error("this is a error text")
+    # [2023-06-20 14:21:05,080::MYTEST::ERROR] this is a error text
+    
+    logger.critical("this is a critical error text")
+    # [2023-06-20 14:39:21,941::root::CRITICAL] this is a critical error text
+    
+    # 等价于
+    logger.log(logging.INFO, 'this is a error text')
+    logger.log(logging.DEBUG, 'this is a error text')
+    logger.log(logging.ERROR, 'this is a error text')
+    logger.log(logging.WARNING, 'this is a error text')
+    logger.log(logging.CRITICAL, 'this is a error text')
+    """
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    if use_color:
+        formatter = ColorFormatter('[%(asctime)s::%(name)s::%(levelname)s] %(message)s')
+    else:
+        formatter = logging.Formatter('[%(asctime)s::%(name)s::%(levelname)s] %(message)s')
+    
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+    
+    if file is not None:
+        file_handler = logging.FileHandler(file)
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    
+    return logger
+
+class persistent_locals(object):
+    """
+    A class to record the local variables from a function. It is a good debuger.
+    
+    Ref: https://stackoverflow.com/questions/9186395/
+    
+    Example
+    ------------
+    @persistent_locals
+    def func():
+        local1 = 1
+        local2 = 2
+
+    func()
+    print(func.locals)
+    """
+    def __init__(self, func):
+        self._locals = {}
+        self.func = func
+
+    def __call__(self, *args, **kwargs):
+        def tracer(frame, event, arg):
+            if event=='return':
+                self._locals = frame.f_locals.copy()
+
+        # tracer is activated on next call, return or exception
+        sys.setprofile(tracer)
+        try:
+            # trace the function call
+            res = self.func(*args, **kwargs)
+        finally:
+            # disable tracer and replace with old one
+            sys.setprofile(None)
+        return res
+
+    def clear_locals(self):
+        self._locals = {}
+
+    @property
+    def locals(self):
+        return self._locals
+
+
+
+

@@ -2,7 +2,8 @@
 
 import re
 from pyliftover import LiftOver
-import sys, os, General
+import sys, os
+from . import General
 
 # def reverse_comp(sequence):
 #     """
@@ -77,28 +78,44 @@ class seqClass(object):
         
         self.genome = pysam.Fastafile(seqFn)
         sys.stdout.writelines("seqClass: input 0-based coordinate -- [start, end)\n")
-    
-    def fetch(self, chrID, chrStart, chrEnd, chrStrand="+"):
+        self.size_dict = self._seq_len_dict()
+        self.key_list = sorted(list(self.size_dict.keys()))
+
+    def fetch(self, chrID, chrStart=None, chrEnd=None, chrStrand="+"):
         """
         chrID           -- Chromosome ID
         chrStart        -- Chromosome start position
         chrEnd          -- Chromosome end position
         chrStrand       -- + or -
         """
+        if chrStart is None:
+            chrStart = 0
+        if chrEnd is None:
+            chrEnd = self.size_dict[chrID]
+
         if chrStrand == '+':
             return self.genome.fetch(chrID, chrStart, chrEnd)
         
         if chrStrand == '-':
             return reverse_comp(self.genome.fetch(chrID, chrStart, chrEnd))
     
+    def get(self, chrID):
+        """
+        Get the full sequence
+        """
+        return self.genome.fetch(chrID, 0, self.size_dict[chrID])
+
     def has(self, chrID):
         return chrID in self.genome.references
     
-    def seq_len_dict(self):
-        len_dict = {}
+    def _seq_len_dict(self):
+        size_dict = {}
         for chr_id, chr_len in zip(self.genome.references, self.genome.lengths):
-            len_dict[chr_id] = chr_len
-        return len_dict
+            size_dict[chr_id] = chr_len
+        return size_dict
+
+    def seq_len_dict(self):
+        return self.size_dict
 
 class liftOverClass(LiftOver):
     def __init__(self, from_db, to_db):

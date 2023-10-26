@@ -1,14 +1,14 @@
 #-*- coding:utf-8 -*-
 
-import os, sys, subprocess, random, time, re, Colors, signal, shutil, tempfile
-import General
+import os, sys, subprocess, random, time, re, signal, shutil, tempfile
+from . import General, Colors
 
 if 'getstatusoutput' in dir(subprocess):
     from subprocess import getstatusoutput
 else:
     from commands import getstatusoutput
 
-from General import Run_catchKI
+from .General import Run_catchKI
 
 ############################################
 #######    Internal function

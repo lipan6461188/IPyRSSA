@@ -16,7 +16,9 @@ covary_bps = Covariation.call_covariation(query_seq, query_dot, "MERS_5UTR", seq
 
 """
 
-import General, Colors, os, sys, Structure
+from . import Structure, General, Colors
+
+import os, sys
 
 def dot2sto(dot, modelname, outfile, refSeq=None, GS_DE=None, mode='w'):
     """
