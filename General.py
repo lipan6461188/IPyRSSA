@@ -1,6 +1,8 @@
 #-*- coding:utf-8 -*-
 
-import sys, os, shutil, re, logging
+import sys, os, shutil, re, logging, subprocess, string
+import numpy as np
+from tqdm.auto import trange, tqdm
 
 def load_fasta(seqFn, rem_tVersion=False, load_annotation=False, full_line_as_id=False):
     """
@@ -614,28 +616,45 @@ def calc_AUC_v2(dot, shape_list):
     
     return AUC
 
-def seq_entropy(sequence):
+def seq_entropy(sequence, seq_type='prot', allow_X=False):
     """
     Give a sequence, calculate the entropy (0-4)
-    sequence        -- Sequence
+    sequence: nuc or prot sequence
+    seq_type: nuc or prot
     """
     import numpy as np
-    if 'N' in sequence:
-        raise RuntimeError("Error: N in sequence, not allowed")
+    assert seq_type in ('nuc', 'prot')
     
-    sequence = sequence.replace('U','T')
-    binucs = []
-    i = 0
-    while i<len(sequence)-2:
-        binucs.append( sequence[i:i+2] )
-        i+=1
-    fb = ['A','T','C','G']
+    nuc_aatypes  = ['A','T','C','G']
+    prot_aatypes = ['A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V']
+    if allow_X:
+        prot_aatypes.append('X')
+        nuc_aatypes.append('N')
+    
+    new_seq = ""
+    for r in sequence:
+        if seq_type == 'nuc':
+            r = r.replace('U', 'T')
+            if r not in nuc_aatypes:
+                if allow_X:
+                    r = 'N'
+                else:
+                    raise RuntimeError(f"Expected nuc type: {r}")
+        else:
+            if r not in prot_aatypes:
+                if allow_X:
+                    r = 'X'
+                else:
+                    raise RuntimeError(f"Expected prot res type: {r}")
+        new_seq += r
+    
+    fb = nuc_aatypes if seq_type == 'nuc' else prot_aatypes
     m = {}
     for b1 in fb:
         for b2 in fb:
             m[b1+b2] = 0
-    for b in binucs:
-        m[b[0]+b[1]] += 1
+    for i in range(len(new_seq)-2):
+        m[new_seq[i:i+2]] += 1
     
     m = list(m.values())
     ms = sum(m)
@@ -770,6 +789,375 @@ class persistent_locals(object):
     @property
     def locals(self):
         return self._locals
+
+
+def recursive_list(root_path, recursive=True, include_dir=False, startswith=None, endswith=None, regex=None):
+    """
+    Recurlive list all files in PATH
+    """
+    join    = os.path.join
+    isfile  = os.path.isfile
+    isdir   = os.path.isdir
+    matches = []
+    for file in os.listdir(root_path):
+        full_file = join(root_path, file)
+        if isfile(full_file):
+            if startswith is not None and not file.startswith(startswith):
+                continue
+            if endswith is not None and not file.endswith(endswith):
+                continue
+            if regex is not None and re.match(regex, file) is None:
+                continue
+            matches.append(full_file)
+        elif isdir(full_file) and recursive:
+            matches += recursive_list(full_file, recursive, startswith=startswith, endswith=endswith, regex=regex)
+            if include_dir:
+                matches.append(full_file)
+    return matches
+
+def get_monomer_tmscore(pdb_pd, pdb_gt, method='TMscore', seq_depend_realn=True):
+    """
+    Calculate monomer TMscore
+    
+    Parameters
+    -----------------
+    pdb_pd: predicted PDB file
+    pdb_gt: ground truth PDB file
+    method: TMscore or USalign
+    seq_depend_realn: realign two structures with sequence
+    
+    Return
+    ----------------
+    Tuple of (tmscore, seqid)
+    """
+    
+    assert method in ('TMscore', 'USalign')
+    
+    if method == 'TMscore' and shutil.which('TMscore') is None:
+        print(f"TMscore not in PATH. Please install at first")
+        print(f"wget https://zhanggroup.org/TM-score/TMscore.cpp -O TMscore.cpp && g++ -O3 -o TMscore TMscore.cpp")
+    
+    if method == 'USalign' and shutil.which('USalign') is None:
+        print(f"USalign not in PATH. Please install at first")
+        print(f"wget https://zhanggroup.org/US-align/bin/module/USalign.cpp -O USalign.cpp && g++ -O3 -o USalign USalign.cpp")
+    
+    cmd = f"{method} {pdb_pd} {pdb_gt} -outfmt 1"
+    if method == 'TMscore':
+        if seq_depend_realn:
+            cmd += ' -seq'
+        else:
+            print(f"Warning: you are using TMscore without sequence realign!")
+    elif method == 'USalign':
+        if seq_depend_realn:
+            cmd += ' -TMscore 5'
+    status, output = subprocess.getstatusoutput(cmd)
+    if status != 0:
+        print(output)
+        return None, None
+    
+    lines = output.split('\n')
+    min_i = min([ i for i in range(len(lines)) if lines[i].startswith('>') ])
+    head1, seq1, head2, seq2 = lines[min_i:min_i+4]
+    assert len(seq1) == len(seq2)
+    
+    tmscore = None
+    seqid = None
+    l = None
+    for item in head2.split():
+        if item.startswith('TM-score='):
+            tmscore = float(item[9:])
+        elif item.startswith('seqID='):
+            seqid = float(item[6:])
+    
+    if tmscore is None or seqid is None:
+        print(output)
+    
+    return (tmscore, seqid)
+
+##############################################
+### MSA file related
+##############################################
+
+def write_msa_txt(msa, file_or_stream, q_seq=None, sort=False, annotations=None):
+    """
+    Write MSA to msa .txt file
+    
+    Parmeters
+    --------------
+    msa: list of msa sequences
+    file_or_stream: file or stream to save results
+    q_seq: query sequence. If not given, the first sequence in msa is the query sequence
+    sort: Sort input MSA according to identity
+    annotations: Annotations of each sequences (excluding query seqs). len(annotations)==len(msa)
+    
+    Return
+    --------------
+    None
+    """
+    if q_seq is not None:
+        if len(msa) > 0:
+            assert len(q_seq) == len(msa[0])
+    else:
+        q_seq, msa = msa[0], msa[1:]
+    assert '-' not in q_seq, f"Expect no gap in q_seq, but got {q_seq}"
+    
+    if annotations is not None:
+        assert isinstance(annotations, (list, tuple))
+        assert len(annotations) == len(msa)
+    
+    id_arr = np.array([ np.mean([ r1==r2 for r1,r2 in zip(q_seq, seq) ]) for seq in msa ], dtype=np.float64)
+    if sort:
+        id_order = np.argsort(id_arr)[::-1]
+        id_arr   = id_arr[id_order]
+        msa      = [ msa[i] for i in id_order ]
+        if annotations is not None:
+            annotations = [ annotations[i] for i in id_order ]
+    
+    OUT = file_or_stream if hasattr(file_or_stream, 'write') else open(file_or_stream, 'w')
+    print(q_seq, end='\t\n', file=OUT)
+    for i in range(len(msa)):
+        if annotations is None or annotations[i] is None or annotations[i] == "":
+            print(msa[i], round(id_arr[i],3), sep='\t', file=OUT)
+        else:
+            print(msa[i], round(id_arr[i],3), annotations[i], sep='\t', file=OUT)
+    if not hasattr(file_or_stream, 'write'):
+        OUT.close()
+
+def load_msa_txt(file_or_stream, load_id=False, load_annot=False, sort=False):
+    """
+    Read msa txt file
+    
+    Parmeters
+    --------------
+    file_or_stream: file or stream to read (with read method)
+    load_id: read identity and return
+    
+    Return
+    --------------
+    msa: list of msa sequences, the first sequence in msa is the query sequence
+    id_arr: Identity of msa sequences
+    annotations: Annotations of msa sequences
+    """
+    msa = []
+    id_arr = []
+    annotations = []
+    
+    if hasattr(file_or_stream, 'read'):
+        lines = file_or_stream.read().strip().split('\n')
+    else:
+        lines = open(file_or_stream).read().strip().split('\n')
+    
+    for idx,line in enumerate(lines):
+        data = line.strip().split()
+        if idx == 0:
+            assert len(data) == 1, f"Expect 1 element for the 1st line, but got {data} in {file}"
+            q_seq = data[0]
+        else:
+            if len(data) >= 2:
+                id_arr.append( float(data[1]) )
+            else:
+                assert len(q_seq) == len(data[0])
+                id_ = round(np.mean([ r1==r2 for r1,r2 in zip(q_seq, data[0]) ]), 3)
+                id_arr.append(id_)
+            msa.append( data[0] )
+            if len(data) >= 3:
+                annot = " ".join(data[2:])
+                annotations.append( annot )
+            else:
+                annotations.append(None)
+    
+    id_arr = np.array(id_arr, dtype=np.float64)
+    if sort:
+        id_order = np.argsort(id_arr)[::-1]
+        msa      = [ msa[i] for i in id_order ]
+        id_arr   = id_arr[id_order]
+        annotations = [ annotations[i] for i in id_order ]
+    msa = [q_seq] + msa
+    
+    outputs = [ msa ]
+    if load_id:
+        outputs.append( id_arr )
+    if load_annot:
+        outputs.append( annotations )
+    if len(outputs) == 1:
+        return outputs[0]
+    return outputs
+
+def load_a3m(file, rem_lowercase=True, load_annotation=False):
+    """
+    file                -- A3M file or input handle (with readline implementation)
+    rem_lowercase       -- Remove lowercase alphabet
+    
+    Return:
+        - name2seq: dict
+        - name2id:  dict
+        if load_annotation is True:
+            - name2annotation: dict 
+    """
+    name2seq, name2annotation = load_fasta(file, load_annotation=True)
+    table = str.maketrans('', '', string.ascii_lowercase)
+    
+    query_name = next(iter(name2seq))
+    query_seq  = name2seq[query_name]
+    assert not any([ str.islower(r) or r == '-' for r in query_seq ]), f"Expect all residues are upper-case and no gap in query_seq, but got {query_seq}"
+    
+    name2id = {}
+    for name, seq in name2seq.items():
+        align_seq = seq.translate(table)
+        assert len(align_seq) == len(query_seq), f"Expect same length, but got {len(align_seq)} and {len(query_seq)}"
+        name2id[name] = round(np.mean([ r1==r2 for r1,r2 in zip(align_seq, query_seq) ]), 3)
+        if rem_lowercase:
+            name2seq[name] = align_seq
+    
+    if load_annotation:
+        return name2seq, name2id, name2annotation
+    else:
+        return name2seq, name2id
+
+def get_msa_perRes_Neff(msa, seq_id_cutoff=0.8, device='cpu', disable_tqdm=True):
+    """
+    Calculate Neff of MSA
+    Refer to https://academic.oup.com/bioinformatics/article/36/4/1091/5556814 for more details
+    Code: https://github.com/neftlon/af2-plddt-contextualized/blob/5aa87397d4deebbc2c7b95f1881873182f9e4f6f/af22c/ref_scores.py#L102
+    
+    Parameters
+    ---------------
+    msa: List of MSA sequences
+    seq_id_cutoff: pairwise sequence idensity cutoff
+    device: cpu or cuda
+    disable_tqdm: Disable tqdm
+    
+    Return
+    ---------------
+    Neff: np.ndarray. N_eff for each residues
+    """
+    import torch
+    import af2_features
+    gap_tok_id = af2_features.rc.restypes_with_x_and_gap.index('-')
+    
+    num_seq = len(msa)
+    len_seq = len(msa[0])
+    
+    # [N_seq, L_seq]
+    msa_enc = torch.from_numpy(np.array([ af2_features.seq2aatype(seq) for seq in msa ], dtype=np.int32)).to(device)
+    pair_seq_id = torch.zeros([num_seq, num_seq], dtype=torch.float32, device=device)
+    
+    for i in trange(num_seq, disable=disable_tqdm):
+        pair_seq_id[i] = torch.mean((msa_enc[i][None, :] == msa_enc).float(), axis=1)
+    
+    inv_n_eff_weights = 1 / (pair_seq_id > seq_id_cutoff).sum(1)
+    Neff = torch.sum(inv_n_eff_weights[:, None] * ( msa_enc != gap_tok_id ).float(), axis=0)
+    Neff = Neff.numpy()
+    
+    return Neff
+
+def print_msa(msa, len_per_row=100, annotations=None, colors=None, OUT=sys.stdout):
+    """
+    Print MSA as text
+    
+    Parameters
+    ---------------
+    msa: list of protein sequences
+    len_per_row: number of residues per row
+    annotations: sequence titles. If provided, the length must equal to msa
+    colors: Colors of sequences. If provided, the length must equal to msa
+    OUT: Output stream
+    
+    Return
+    ---------------
+    None
+    """
+    from IPyRSSA import Colors
+    assert isinstance(msa, (tuple, list))
+    if annotations is None:
+        annotations = [''] * len(msa)
+    else:
+        assert len(msa) == len(annotations)
+        assert all([ isinstance(it, str) for it in annotations ])
+    
+    if colors is None:
+        colors = ['default'] * len(msa)
+    else:
+        assert len(msa) == len(colors)
+    
+    len_aln = len(msa[0])
+    max_annot_len = max([len(it) for it in annotations])
+    
+    info = ""
+    aln_seq_starts = [0] * len(msa)
+    for start in range(0, len_aln, len_per_row):
+        end = min(start + len_per_row, len_aln)
+        for idx,seq in enumerate(msa):
+            seq_start   = aln_seq_starts[idx]
+            seq_tok_num = end - start - seq[start:end].count('-')
+            next_seq_start = seq_start + seq_tok_num
+            aln_seq_starts[idx] = next_seq_start
+            seq_end = max(next_seq_start - 1, seq_start)
+            d = 8
+            info += annotations[idx].ljust(max_annot_len + 1) + str(seq_start).rjust(5) + ' ' + \
+                    Colors.f(seq[start:end], colors[idx]) + ' ' + \
+                    str(seq_end).ljust(5) + '\n'
+        info += '\n'
+    print(info, file=OUT, flush=True)
+
+##############################################
+### Statistics
+##############################################
+
+def get_statistics(values, be_sorted=False, beautiful_print=True):
+    """
+    Get statistics values of values
+    
+    Return
+    -----------
+    qs: list
+    statistics: list
+    """
+    import copy
+    if len(values) == 0:
+        return [], []
+    values = copy.deepcopy(values)
+    N = len(values)
+    if isinstance(values, (list, tuple)):
+        values = np.array(values)
+    
+    if not be_sorted:
+        values.sort()
+    
+    #qs = [0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 1.0]
+    met = ['Min', 'Q1', 'Q5', 'Q10', 'Q25', 'Median', 'Q75', 'Q90', 'Q95', 'Q99', 'Max', 'Mean', '#']
+    statistics = []
+    for m in met:
+        if m == 'Min':
+            statistics.append( values[0] )
+        elif m == 'Max':
+            statistics.append( values[-1] )
+        elif m == 'Median':
+            statistics.append( values[ N//2 ] )
+        elif m == 'Mean':
+            statistics.append( round(values.mean(), 3) )
+        elif m == '#':
+            statistics.append( len(values) )
+        elif m.startswith('Q'):
+            q = int(m[1:]) / 100
+            i = min(int( len(values)*q ), len(values)-1)
+            statistics.append( values[i] )
+    
+    if beautiful_print:
+        statistics_str = [ str(d) for d in statistics ]
+        max_len = max([ len(d) for d in statistics_str ]) + 2
+        max_len = max(max_len, 8)
+        header = ""
+        content = ""
+        for m,v in zip(met, statistics_str):
+            header  += m.center(max_len, " ")
+            content += v.center(max_len, " ")
+        print(header)
+        print(content)
+    
+    return met, statistics
+
+
 
 
 

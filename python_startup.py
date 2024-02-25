@@ -9,6 +9,7 @@ def warn_f(text):
  
 print(f"(run {__file__})")
 import os, sys, time, re, random, pickle, copy, gzip, io, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string
+from queue import PriorityQueue, Queue, deque, LifoQueue
 from multiprocessing import Pool
 from os.path import exists, join, getsize, isdir, abspath
 from typing import Dict, Union, Optional, List, Tuple, Mapping
@@ -22,6 +23,9 @@ def import_module(model_name, from_import_name=None):
         module = importlib.import_module(model_name)
     except ModuleNotFoundError:
         print( warn_f(f"{model_name} not found, import failed") )
+        return None
+    except ImportError:
+        if warn: print( warn_f(f"{model_name} import error, import failed") )
         return None
     if from_import_name is not None:
         try:
@@ -77,6 +81,18 @@ HOME = env['HOME']
 TEMP = tempfile.gettempdir()
 STDOUT = sys.stdout
 STDERR = sys.stderr
+
+if not hasattr(np, 'object'):
+    np.object = np.object_
+
+if not hasattr(np, 'int'):
+    np.int = np.int64
+
+if not hasattr(np, 'float'):
+    np.float = np.float64
+
+if not hasattr(np, 'bool'):
+    np.bool = np.bool_
 
 print("importCommon() to import more common modules")
 def importCommon():
@@ -141,7 +157,7 @@ def importCommon():
     venn2       = import_module("matplotlib_venn", 'venn2')
     venn3       = import_module("matplotlib_venn", 'venn3')
     
-    plt.rc('font', family='Helvetica')
+    # plt.rc('font', family='Helvetica')
     plt.rcParams['pdf.fonttype'] = 42
     
     ### Data Science

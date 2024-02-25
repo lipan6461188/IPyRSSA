@@ -174,7 +174,7 @@ def piePlot(data_list, explodes=None, colors=None, labels=None, format=None, lab
     """
     return plt.pie(data_list, explode=explodes, colors=colors, labels=labels, shadow=False, autopct=format, labeldistance=labeldistance)
 
-def boxPlot(ax, data_list, width=0.4, labels=None, title=None, facecolors=None, mediancolors=None, showOutliers=False):
+def boxPlot(ax, data_list, width=0.4, labels=None, title=None, facecolors=None, showmeans=False, meancolors=None, mediancolors=None, showOutliers=False):
     """
     Plot a box
     
@@ -194,12 +194,15 @@ def boxPlot(ax, data_list, width=0.4, labels=None, title=None, facecolors=None, 
         boxPlot(ax, data_list, labels=labels, facecolors=facecolors)
         fig.show()
     """
-    obj = ax.boxplot(x=data_list, showfliers=showOutliers, patch_artist=True, widths=width)
+    obj = ax.boxplot(x=data_list, showfliers=showOutliers, patch_artist=True, widths=width, showmeans=showmeans, meanline=showmeans)
     
-    if not facecolors:
+    if facecolors is None:
         facecolors = ['#2196f3']*len(data_list)
-    if not mediancolors:
+    if mediancolors is None:
         mediancolors = ['white']*len(data_list)
+    
+    if meancolors is None:
+        meancolors = ['#9c27b0']*len(data_list)
     
     for i,box in enumerate(obj['boxes']):
         box.set( color='#7570b3', linewidth=0.5)
@@ -213,6 +216,10 @@ def boxPlot(ax, data_list, width=0.4, labels=None, title=None, facecolors=None, 
     
     for i,median in enumerate(obj['medians']):
         median.set(color=mediancolors[i], linewidth=2)
+    
+    if 'means' in obj:
+        for i,mean in enumerate(obj['means']):
+            mean.set(color=meancolors[i], linewidth=1)
     
     for flier in obj['fliers']:
         flier.set(marker='o', color='#e7298a', alpha=0.5)
@@ -322,26 +329,85 @@ def rainbowPlot(probList, ax, length=None, lw=0.8, prob_cutoff=[0.8, 0.3, 0.1, 0
         ax.set_xlim(1, length)
 
 
+def scatterPlot(df, x, y, label=None, hue=None, hue_vmin=None, hue_vcenter=None, hue_vmax=None,
+                legend='auto', palette=None, unit_scalling_factor=20):
+    """
+    Scatter plot with text labels
+    
+    Example:
 
-
-
+    df = ...
+    x = 'xTFold'
+    y = 'None_10_None_1.2_256'
+    hue = 'None_10_None_1.2_256_MSANum'
+    hue_vmin, hue_vcenter, hue_vmax = 0, 50, 200
+    legend = False
+    palette = sns.color_palette("coolwarm", as_cmap=True)
+    unit_scalling_factor = 20
+    plt.figure(figsize=(10,10))
+    ax = scatterplot(df_1, x, y, label=label, hue=hue, hue_vmin=hue_vmin, hue_vcenter=hue_vcenter, hue_vmax=hue_vmax, legend=legend, palette=palette, unit_scalling_factor=unit_scalling_factor)
+    ax.plot([0.1,1], [0.1,1], '-.')
+    plt.savefig(join(HOME, 'Figures', 'xtFold_vs_retrieval_casp15.pdf'))
+    plt.close()
+    """
+    import seaborn as sns
+    import matplotlib as mpl
+    
+    if palette is None:
+        palette = sns.color_palette("coolwarm", as_cmap=True)
+    
+    ax = sns.scatterplot(data=df, x=x, y=y, hue=hue, 
+                   linewidth=0.2, edgecolor='black', 
+                   hue_norm=mpl.colors.TwoSlopeNorm(vmin=hue_vmin, vcenter=hue_vcenter, vmax=hue_vmax),
+                   legend=legend,
+                   palette=palette)
+    
+    xmin, xmax = ax.get_xbound()
+    ymin, ymax = ax.get_ybound()
+    unit_x, unit_y = (xmax - xmin) / unit_scalling_factor, (ymax - ymin) / unit_scalling_factor
+    
+    if label is not None:
+        names = df.loc[:, label].values
+        xy = df.loc[:, (x, y)].values
+        for idx in range(len(xy)):
+            x,y = xy[idx]
+            name = names[idx]
+            mask = (xy[:, 0]>=x-unit_x) & (xy[:, 0]<=x+unit_x) & (xy[:, 1]>=y-unit_y) & (xy[:, 1]<=y)
+            if mask.sum() <= 1:
+                ax.text( x, y, name, verticalalignment='top', horizontalalignment='center' )
+    return ax
 
 ##########################
 ## Matplotlib related functions
 ##########################
 
-def set_matplotlib_font(family='normal', weight='normal', size=10):
+DEFAULT_FONT_FAMILY = plt.rcParams["font.family"]
+DEFAULT_FONT_SERIF  = plt.rcParams["font.serif"]
+
+def set_matplotlib_font(family=None, serif=None, weight=None, size=None):
     """
-    Get all parameters: matplotlib.rcParams
+    Parameters
+    ----------------
+    family: ['sans-serif']
+    serif: ['DejaVu Serif', 'Bitstream Vera Serif', 'Computer Modern Roman', 'New Century Schoolbook', 'Century Schoolbook L', 'Utopia', 'ITC Bookman', 'Bookman', 'Nimbus Roman No9 L', 'Times New Roman', 'Times', 'Palatino', 'Charter', 'serif']
+    weight: 'normal'
+    size: 10
+    
+    To get all parameters: matplotlib.rcParams
     """
     import matplotlib
     import matplotlib.pyplot as plt
     
-    # raw_font_params = { k:v for k,v in matplotlib.rcParams.items() if k.startswith('font.') }
+    if family is not None:
+        plt.rcParams["font.family"] = family
+    if serif is not None:
+        plt.rcParams["font.serif"] = serif
+    if weight is not None:
+        plt.rcParams["font.weight"] = weight
+    if size is not None:
+        plt.rcParams["font.size"] = size
     
-    font = {'family' : family,
-            'weight' : weight,
-            'size'   : size}
 
-    matplotlib.rc('font', **font)
+
+
 

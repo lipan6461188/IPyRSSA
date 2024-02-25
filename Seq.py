@@ -230,11 +230,12 @@ def search_subseq_from_genome(Seqer, chrID, start, end, strand, pattern, caller=
 ### Clustering sequences
 ###################################
 
-def cluster_sequences(seq_dict, seq_type='prot', cutoff=0.80, verbose=False):
+def cluster_sequences(seq_dict, method='cd-hit', seq_type='prot', cutoff=0.80, verbose=False):
     """
     Parameters
     ------------
     seq_dict: {seq_name: 'AXJIJDIWIJDIWD', ...}
+    method: cd-hit or mmseqs
     seq_type: prot or dna
     cutoff: float
         Similarity cutoff
@@ -246,26 +247,51 @@ def cluster_sequences(seq_dict, seq_type='prot', cutoff=0.80, verbose=False):
     cluster: [ [seq_id, seq_length, similarity], ... ]
     """
     assert seq_type in ('prot', )
+    assert method in ('cd-hit', 'mmseqs')
     import tempfile, shutil, subprocess
     
-    cdhit_bin = shutil.which('cd-hit')
-    assert cdhit_bin is not None, "Error: cd-hit not in PATH"
-    
     workdir = tempfile.mkdtemp(prefix="clusterSeq_")
-    input_fa = os.path.join(workdir, "input.fa")
-    output_fa = os.path.join(workdir, "output.fa")
-    clust_fn = os.path.join(workdir, "output.fa.clstr")
-    General.write_fasta(seq_dict, input_fa)
     
-    cmd = f"{cdhit_bin} -i {input_fa} -o {output_fa} -c {cutoff}"
-    if verbose:
-        print(cmd)
-    _ = subprocess.getoutput(cmd)
-    if not os.path.exists(clust_fn):
-        print(f"Run cd-hit failed, {clust_fn} not exists")
-        cluster = None
+    if method == 'cd-hit':
+        cdhit_bin = shutil.which('cd-hit')
+        assert cdhit_bin is not None, "Error: cd-hit not in PATH"
+        
+        input_fa = os.path.join(workdir, "input.fa")
+        output_fa = os.path.join(workdir, "output.fa")
+        clust_fn = os.path.join(workdir, "output.fa.clstr")
+        General.write_fasta(seq_dict, input_fa)
+    
+        cmd = f"{cdhit_bin} -i {input_fa} -o {output_fa} -c {cutoff}"
+        if verbose:
+            print(cmd)
+        _ = subprocess.getoutput(cmd)
+        if not os.path.exists(clust_fn):
+            print(f"Run cd-hit failed, {clust_fn} not exists")
+            cluster = None
+        else:
+            cluster = read_cdhit_clstr(clust_fn)
     else:
-        cluster = read_cdhit_clstr(clust_fn)
+        mmseqs_bin = shutil.which('mmseqs')
+        assert mmseqs_bin is not None, "Error: mmseqs not in PATH"
+        
+        input_fa    = os.path.join(workdir, "input.fa")
+        output_pref = os.path.join(workdir, "output")
+        tmp_dir     = os.path.join(workdir, "tmp")
+        General.write_fasta(seq_dict, input_fa)
+    
+        cmd = f"{mmseqs_bin} easy-cluster --cov-mode 0 --threads 8 -c {cutoff} {input_fa} {output_pref} {tmp_dir}"
+        if verbose:
+            print(cmd)
+        _ = subprocess.getoutput(cmd)
+        if not os.path.exists(f"{output_pref}_cluster.tsv"):
+            print(f"Run mmseqs failed, {output_pref}_cluster.tsv not exists")
+            cluster = None
+        else:
+            cluster = {}
+            for line in open(f"{output_pref}_cluster.tsv"):
+                a, b = line.strip().split()
+                cluster[a] = cluster.get(a, []) + [b]
+            cluster = list(cluster.values())
     
     shutil.rmtree(workdir)
     return cluster

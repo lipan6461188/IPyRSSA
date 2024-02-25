@@ -661,6 +661,8 @@ class Chimera:
     
     Example:
     
+    os.environ['LD_LIBRARY_PATH'] += ':/nfs_beijing/kubeflow-user/lipan/miniconda3/envs/torch2/lib'
+
     chimera = Chimera()
     chimera_command_list = [
         'background solid white',
@@ -713,21 +715,13 @@ class Chimera:
             print(output)
     
     def clear(self):
+        import os
         if os.path.exists(self.work_dir):
             shutil.rmtree(self.work_dir)
     
     def __del__(self):
         if self.delete_workdir:
             self.clear()
-
-
-
-
-
-
-
-
-
 
 
 

@@ -730,3 +730,64 @@ class Multi_GPU_PYFUNC:
             shutil.rmtree(self.state_dir_name)
 
 
+###################################               
+### Get resource limitations in docker environment
+###################################               
+                                                  
+def get_docker_limit():
+    """
+    Get Docker limits
+
+    Return
+    -----------
+    limits: dict
+        -- CPU: Number of CPU
+        -- MEM: Numver of Mem
+    """
+    limits = {}
+
+    ### CPU
+    from multiprocessing import cpu_count
+    if os.path.exists("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") and os.path.exists("/sys/fs/cgroup/cpu/cpu.cfs_period_us"):
+        cfs_quota_us   = int(open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read())
+        cfs_period_us  = int(open("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read())
+        container_cpus = cfs_quota_us // cfs_period_us
+        # For physical machine, the `cfs_quota_us` could be '-1'
+        limits['CPU'] = cpu_count() if container_cpus < 1 else container_cpus
+    else:
+        limits['CPU'] = cpu_count()
+
+    ### MEM
+    limits['MEM'] = int(open('/sys/fs/cgroup/memory/memory.limit_in_bytes').read()) // 1024 ** 3
+
+    return limits
+
+###################################               
+### Lock programs to permit only one process can run
+###################################     
+
+class ProgLock:
+    """
+    Semaphore to control only one process can enter the environment
+    """
+    def __init__(self, tagfile, wait_second=10, verbose=True):
+        """
+        tagfile: a tag file to label the Semaphore condition. this file must be create before run the program
+        wait_second: seconds to wait when tagfile not found
+        verbose: print information when tagfile not found
+        """
+        self.tagfile = tagfile
+        self.wait_second = wait_second
+        self.verbose = verbose
+    
+    def __enter__(self):
+        while not os.path.exists(self.tagfile):
+            if self.verbose:
+                print(f"Tag file {self.tagfile} not found. wait {self.wait_second}s...")
+            time.sleep(self.wait_second)
+        os.remove(self.tagfile)
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        from pathlib import Path
+        Path(self.tagfile).touch()
+
