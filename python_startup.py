@@ -8,15 +8,21 @@ def warn_f(text):
     return "\x1b["+code+"m"+text+"\x1b[0m"
  
 print(f"(run {__file__})")
-import os, sys, time, re, random, pickle, copy, gzip, io, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string
+import os, sys, time, re, random, pickle, copy, gzip, io, yaml, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string, code, warnings, concurrent, gc, functools, types, traceback, base64, bz2, ctypes
 from queue import PriorityQueue, Queue, deque, LifoQueue
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import Pool
-from os.path import exists, join, getsize, isdir, abspath
+from os.path import exists, join, getsize, isfile, isdir, abspath, basename, realpath
+from os import listdir
 from typing import Dict, Union, Optional, List, Tuple, Mapping
+from functools import partial
+from datetime import datetime
 import numpy  as np
 import pandas as pd
 from pathlib import Path
 from tqdm.auto import tqdm, trange
+from tabulate import tabulate
+from argparse import Namespace
 # import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections, pickle, io, gzip, json
 def import_module(model_name, from_import_name=None):
     try:
@@ -57,6 +63,8 @@ if Colors is None:
     Cluster = import_module("IPyRSSA", "Cluster")
 
 
+f = Colors.f
+print_tensor_info, print_dict = General.print_tensor_info, General.print_dict
 GAP = import_module("GAP")
 reload = import_module("imp", "reload")
 FFindex = import_module("FFindex", "FFindex")
@@ -271,15 +279,28 @@ def import_tf2(set_visible_gpu=False, visible_gpu_id=-1):
     tf.random.set_seed(1216)
 
 
-print("import_torch() to import pytorch")
-def import_torch():
+print("it() to import pytorch")
+def it():
     global torch
     global nn
     global F
+    global pytree
+    global Dataset
+    global DataLoader
     
-    torch   = import_module("torch")
-    nn      = import_module("nn", "torch")
-    F       = import_module("torch.nn.functional")
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    import torch.utils._pytree as pytree
+    from torch.utils.data import Dataset, DataLoader
+
+print("it() to import huggingface")
+def hf():
+    global AutoModelForCausalLM
+    global AutoTokenizer
+    global AutoConfig
+    
+    from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 
 
 print("import_pdb() to import PDB related functions")

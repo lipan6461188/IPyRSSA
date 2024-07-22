@@ -1,8 +1,11 @@
 #-*- coding:utf-8 -*-
 
-import sys, os, shutil, re, logging, subprocess, string
+import sys, os, shutil, re, logging, subprocess, string, io, argparse, bisect, concurrent
+from os.path import exists, join, getsize, isfile, isdir, abspath, basename
 import numpy as np
+import pandas as pd
 from tqdm.auto import trange, tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def load_fasta(seqFn, rem_tVersion=False, load_annotation=False, full_line_as_id=False):
     """
@@ -43,6 +46,9 @@ def load_fasta(seqFn, rem_tVersion=False, load_annotation=False, full_line_as_id
                 cur_tid = ".".join(cur_tid.split(".")[:-1])
         elif cur_tid != '':
             cur_seq += line.rstrip()
+    
+    if isinstance(seqFn, str):
+        IN.close()
     
     if cur_seq != '':
         fasta[cur_tid] = re.sub(r"\s", "", cur_seq)
@@ -790,29 +796,44 @@ class persistent_locals(object):
     def locals(self):
         return self._locals
 
+def set_seed_all(seed:int=0, random_seed:bool=True, numpy_seed:bool=True, torch_seed:bool=True):
+    """
+    Set seed for random, numpy and torch
+    """
+    if random_seed:
+        import random
+        random.seed(seed)
+    if numpy_seed:
+        import numpy as np
+        np.random.seed(seed)
+    if torch_seed:
+        import torch
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
 
 def recursive_list(root_path, recursive=True, include_dir=False, startswith=None, endswith=None, regex=None):
     """
     Recurlive list all files in PATH
     """
-    join    = os.path.join
-    isfile  = os.path.isfile
-    isdir   = os.path.isdir
+    def pass_filter(file):
+        if startswith is not None and not file.startswith(startswith):
+            return False
+        if endswith is not None and not file.endswith(endswith):
+            return False
+        if regex is not None and re.match(regex, file) is None:
+            return False
+        return True
+
     matches = []
     for file in os.listdir(root_path):
         full_file = join(root_path, file)
         if isfile(full_file):
-            if startswith is not None and not file.startswith(startswith):
-                continue
-            if endswith is not None and not file.endswith(endswith):
-                continue
-            if regex is not None and re.match(regex, file) is None:
-                continue
-            matches.append(full_file)
-        elif isdir(full_file) and recursive:
-            matches += recursive_list(full_file, recursive, startswith=startswith, endswith=endswith, regex=regex)
-            if include_dir:
+            if pass_filter(file):
                 matches.append(full_file)
+        elif isdir(full_file) and recursive:
+            if include_dir and pass_filter(file):
+                matches.append(full_file)
+            matches += recursive_list(full_file, recursive, startswith=startswith, endswith=endswith, regex=regex)
     return matches
 
 def get_monomer_tmscore(pdb_pd, pdb_gt, method='TMscore', seq_depend_realn=True):
@@ -830,7 +851,7 @@ def get_monomer_tmscore(pdb_pd, pdb_gt, method='TMscore', seq_depend_realn=True)
     ----------------
     Tuple of (tmscore, seqid)
     """
-    
+
     assert method in ('TMscore', 'USalign')
     
     if method == 'TMscore' and shutil.which('TMscore') is None:
@@ -873,6 +894,190 @@ def get_monomer_tmscore(pdb_pd, pdb_gt, method='TMscore', seq_depend_realn=True)
         print(output)
     
     return (tmscore, seqid)
+
+def get_monomer_gdtscore(pdb_pd, pdb_gt, seq_depend_realn=True):
+    """
+    Calculate monomer GDT-TS and GDT-HA
+    
+    Parameters
+    -----------------
+    pdb_pd: predicted PDB file
+    pdb_gt: ground truth PDB file
+    seq_depend_realn: realign two structures with sequence
+    
+    Return
+    ----------------
+    Tuple of (GDT-TS-score, GDT-HA-score)
+    """
+    
+    cmd = f"TMscore {pdb_pd} {pdb_gt} -outfmt 0"
+    if seq_depend_realn:
+        cmd += ' -seq'
+    status, output = subprocess.getstatusoutput(cmd)
+    if status != 0:
+        print(output)
+        return None, None
+    lines = output.split('\n')
+    gdt_scores = []
+    for line in lines:
+        if line.startswith(('GDT-TS-score=', 'GDT-HA-score=')):
+            gdt = float(line.split()[1])
+            gdt_scores.append(gdt)
+    
+    return gdt_scores
+
+def get_monomer_lddt(pdb_pd, pdb_gt):
+    """
+    Calculate monomer lDDT
+    
+    Parameters
+    -----------------
+    pdb_pd: predicted PDB file
+    pdb_gt: ground truth PDB file
+    
+    Return
+    ----------------
+    np.ndarray: lDDT for each residues
+    """
+    import torch, af2_features
+    
+    def permute_final_dims(tensor, inds: List[int]):
+        zero_index = -1 * len(inds)
+        first_inds = list(range(len(tensor.shape[:zero_index])))
+        return tensor.permute(first_inds + [zero_index + i for i in inds])
+    
+    def lddt(
+        all_atom_pred_pos,
+        all_atom_positions,
+        all_atom_mask,
+        cutoff: float = 15.0,
+        eps: float = 1e-10,
+        per_residue: bool = True):
+        
+        import torch
+        
+        all_atom_pred_pos = all_atom_pred_pos if torch.is_tensor(all_atom_pred_pos) else torch.as_tensor(all_atom_pred_pos)
+        all_atom_positions = all_atom_positions if torch.is_tensor(all_atom_positions) else torch.as_tensor(all_atom_positions)
+        all_atom_mask = all_atom_mask if torch.is_tensor(all_atom_mask) else torch.as_tensor(all_atom_mask)
+        
+        n = all_atom_mask.shape[-2]
+        dmat_true = torch.sqrt(eps + torch.sum((all_atom_positions[..., None, :] - all_atom_positions[..., None, :, :]) ** 2, dim=-1))
+        
+        dmat_pred = torch.sqrt(eps + torch.sum((all_atom_pred_pos[..., None, :] - all_atom_pred_pos[..., None, :, :]) ** 2, dim=-1))
+        dists_to_score = ((dmat_true < cutoff) * all_atom_mask * permute_final_dims(all_atom_mask, (1, 0)) * (1.0 - torch.eye(n, device=all_atom_mask.device)))
+        
+        dist_l1 = torch.abs(dmat_true - dmat_pred)
+        
+        score = (
+            (dist_l1 < 0.5).type(dist_l1.dtype)
+            + (dist_l1 < 1.0).type(dist_l1.dtype)
+            + (dist_l1 < 2.0).type(dist_l1.dtype)
+            + (dist_l1 < 4.0).type(dist_l1.dtype)
+        )
+        score = score * 0.25
+        
+        dims = (-1,) if per_residue else (-2, -1)
+        norm = 1.0 / (eps + torch.sum(dists_to_score, dim=dims))
+        score = norm * (eps + torch.sum(dists_to_score * score, dim=dims))
+        
+        return score
+    
+    def lddt_ca(
+        all_atom_pred_pos,
+        all_atom_positions,
+        all_atom_mask,
+        cutoff: float = 15.0,
+        eps: float = 1e-10,
+        per_residue: bool = True):
+        """
+        compute lddt score for Ca only.
+        """
+        import torch
+        
+        all_atom_pred_pos = all_atom_pred_pos if torch.is_tensor(all_atom_pred_pos) else torch.as_tensor(all_atom_pred_pos)
+        all_atom_positions = all_atom_positions if torch.is_tensor(all_atom_positions) else torch.as_tensor(all_atom_positions)
+        all_atom_mask = all_atom_mask if torch.is_tensor(all_atom_mask) else torch.as_tensor(all_atom_mask)
+        
+        from alphafold.common import residue_constants
+        ca_pos = residue_constants.atom_order["CA"]
+        all_atom_pred_pos = all_atom_pred_pos[..., ca_pos, :]  # [*, N_res, 3]
+        all_atom_positions = all_atom_positions[..., ca_pos, :]  # [*, N_res, 3]
+        all_atom_mask = all_atom_mask[..., ca_pos : (ca_pos + 1)]  # keep dim: [*, N_res, 1]
+        
+        return lddt(
+            all_atom_pred_pos,
+            all_atom_positions,
+            all_atom_mask,
+            cutoff=cutoff,
+            eps=eps,
+            per_residue=per_residue,
+        )
+    
+    pd_prot = af2_features.read_pdb(pdb_pd)
+    gt_prot = af2_features.read_pdb(pdb_gt, full_padding=True)
+    L1 = pd_prot.atom_positions.shape[0]
+    L2 = gt_prot.atom_positions.shape[0]
+    s1 = pd_prot.seq(True)
+    s2 = gt_prot.seq(True)
+    
+    assert L1 == L2, f"Expect same length, but got {L1} and {L2}"
+    assert s1 == s2, f"Expect same sequence, but got {s1} and {s2}"
+    
+    lddt = lddt_ca(pd_prot.atom_positions, gt_prot.atom_positions, gt_prot.atom_mask).cpu().numpy()
+    return lddt
+
+def parallel_get_monomer_metrics(pd_gt_pairs, method='TMscore', seq_depend_realn=True, metric_type='TM-score', num_process=25, disable_tqdm=False):
+    """
+    Calculate monomer TMscore with parrallel
+    
+    Parameters
+    -----------------
+    pd_gt_pairs: [(pd_pdb_1, gt_pdb_1), (pd_pdb_2, gt_pdb_2), ...]
+    method: TMscore or USalign
+    seq_depend_realn: realign two structures with sequence
+    metric_type: TM-score, GDT, lDDT
+    num_process: number of process
+    disable_tqdm: disable tqdm progress bar
+    
+    Return
+    ----------------
+    List of results from get_monomer_tmscore funcs
+    """
+    assert metric_type in ('TM-score', 'GDT', 'lDDT')
+    results = [None]*len(pd_gt_pairs)
+    with ThreadPoolExecutor(max_workers=num_process) as executor:
+        tasks = {}
+        for i, (pd_pdb, gt_pdb) in enumerate(pd_gt_pairs):
+            assert exists(pd_pdb), pd_pdb
+            assert exists(gt_pdb), gt_pdb
+            if metric_type == 'TM-score':
+                kwds = { 
+                        'pdb_pd': pd_pdb,
+                        'pdb_gt': gt_pdb,
+                        'method': method, 
+                        'seq_depend_realn': seq_depend_realn
+                }
+                handle = executor.submit(get_monomer_tmscore, **kwds)
+            elif metric_type == 'GDT':
+                # get_monomer_gdtscore(pdb_pd, pdb_gt, seq_depend_realn=True)
+                kwds = { 
+                        'pdb_pd': pd_pdb,
+                        'pdb_gt': gt_pdb,
+                        'seq_depend_realn': seq_depend_realn
+                }
+                handle = executor.submit(get_monomer_gdtscore, **kwds)
+            elif metric_type == 'lDDT':
+                # get_monomer_lddt(pdb_pd, pdb_gt)
+                kwds = { 
+                        'pdb_pd': pd_pdb,
+                        'pdb_gt': gt_pdb
+                }
+                handle = executor.submit(get_monomer_lddt, **kwds)
+            tasks[handle] = i
+        for handle in tqdm(concurrent.futures.as_completed(tasks), total=len(tasks), disable=disable_tqdm, dynamic_ncols=True, leave=False):
+            i = tasks[handle]
+            results[i]= handle.result()
+    return results
 
 ##############################################
 ### MSA file related
@@ -945,12 +1150,14 @@ def load_msa_txt(file_or_stream, load_id=False, load_annot=False, sort=False):
     if hasattr(file_or_stream, 'read'):
         lines = file_or_stream.read().strip().split('\n')
     else:
-        lines = open(file_or_stream).read().strip().split('\n')
+        with open(file_or_stream) as IN:
+            lines = IN.read().strip().split('\n')
+        # lines = open(file_or_stream).read().strip().split('\n')
     
     for idx,line in enumerate(lines):
         data = line.strip().split()
         if idx == 0:
-            assert len(data) == 1, f"Expect 1 element for the 1st line, but got {data} in {file}"
+            assert len(data) == 1, f"Expect 1 element for the 1st line, but got {data} in {file_or_stream}"
             q_seq = data[0]
         else:
             if len(data) >= 2:
@@ -1047,11 +1254,11 @@ def get_msa_perRes_Neff(msa, seq_id_cutoff=0.8, device='cpu', disable_tqdm=True)
     
     inv_n_eff_weights = 1 / (pair_seq_id > seq_id_cutoff).sum(1)
     Neff = torch.sum(inv_n_eff_weights[:, None] * ( msa_enc != gap_tok_id ).float(), axis=0)
-    Neff = Neff.numpy()
+    Neff = Neff.cpu().numpy()
     
     return Neff
 
-def print_msa(msa, len_per_row=100, annotations=None, colors=None, OUT=sys.stdout):
+def print_msa(msa, len_per_row=100, annotations=None, colors=None, OUT=sys.stdout, print_id_matrix:bool=False):
     """
     Print MSA as text
     
@@ -1070,7 +1277,7 @@ def print_msa(msa, len_per_row=100, annotations=None, colors=None, OUT=sys.stdou
     from IPyRSSA import Colors
     assert isinstance(msa, (tuple, list))
     if annotations is None:
-        annotations = [''] * len(msa)
+        annotations = [f'seq_{i}' for i in range(len(msa))]
     else:
         assert len(msa) == len(annotations)
         assert all([ isinstance(it, str) for it in annotations ])
@@ -1080,13 +1287,27 @@ def print_msa(msa, len_per_row=100, annotations=None, colors=None, OUT=sys.stdou
     else:
         assert len(msa) == len(colors)
     
-    len_aln = len(msa[0])
+    n_seq = len(msa)
+    l_seq = len(msa[0])
+    # len_aln = len(msa[0])
     max_annot_len = max([len(it) for it in annotations])
     
     info = ""
+    if print_id_matrix:
+        import seqdb_op
+        id_matrix  = pd.DataFrame(np.zeros([n_seq, n_seq], dtype=np.float32), index=annotations, columns=annotations)
+        cov_matrix = pd.DataFrame(np.zeros([n_seq, n_seq], dtype=np.float32), index=annotations, columns=annotations)
+        for i in range(0, n_seq):
+            for j in range(0, n_seq):
+                identity, coverage = seqdb_op.get_seq_identity_and_coverage(msa[i], msa[j], remove_flanking_gap=True, remove_continous_gap=10, precision=3)
+                id_matrix.iloc[i, j]  = identity
+                cov_matrix.iloc[i, j] = coverage
+        info += "Identity\n" + str(id_matrix) + '\n\n'
+        info += "Coverage\n" + str(cov_matrix) + '\n\n'
+    
     aln_seq_starts = [0] * len(msa)
-    for start in range(0, len_aln, len_per_row):
-        end = min(start + len_per_row, len_aln)
+    for start in range(0, l_seq, len_per_row):
+        end = min(start + len_per_row, l_seq)
         for idx,seq in enumerate(msa):
             seq_start   = aln_seq_starts[idx]
             seq_tok_num = end - start - seq[start:end].count('-')
@@ -1100,11 +1321,47 @@ def print_msa(msa, len_per_row=100, annotations=None, colors=None, OUT=sys.stdou
         info += '\n'
     print(info, file=OUT, flush=True)
 
+def read_msa_block(msa_block_file, load_id=False, load_annot=False, sort=False):
+    """
+    MSA block file:
+        >msa1
+        ABCDEFGHIJ
+        ABC-EF-H-J 0.8 seq1
+        -BCD-F-HIJ 0.8 seq2
+        >msa2
+        ABCDEFGHIJ
+        ABC-EF-H-J 0.8 seq1
+        -BCD-F-HIJ 0.8 seq2
+    
+    Return
+    ------------
+    it: a iterative object
+        next(it) return same object as load_msa_txt
+    """
+    with open(msa_block_file) as IN:
+        stop_read = False
+        while not stop_read:
+            header = IN.readline()
+            assert header[0] == '>', f"Expect header startswith >, but got {header}"
+            msa_txt = ""
+            while True:
+                loc = IN.tell()
+                line = IN.readline()
+                if line == "":
+                    stop_read = True
+                    break
+                elif line[0] == '>':
+                    IN.seek(loc)
+                    break
+                else:
+                    msa_txt += line
+            yield load_msa_txt(io.StringIO(msa_txt), load_id=load_id, load_annot=load_annot, sort=sort)
+
 ##############################################
 ### Statistics
 ##############################################
 
-def get_statistics(values, be_sorted=False, beautiful_print=True):
+def get_statistics(values, be_sorted=False, beautiful_print=True, precision=3):
     """
     Get statistics values of values
     
@@ -1129,19 +1386,19 @@ def get_statistics(values, be_sorted=False, beautiful_print=True):
     statistics = []
     for m in met:
         if m == 'Min':
-            statistics.append( values[0] )
+            statistics.append( round(values[0], precision) )
         elif m == 'Max':
-            statistics.append( values[-1] )
+            statistics.append( round(values[-1], precision) )
         elif m == 'Median':
-            statistics.append( values[ N//2 ] )
+            statistics.append( round(values[ N//2 ], precision) )
         elif m == 'Mean':
-            statistics.append( round(values.mean(), 3) )
+            statistics.append( round(values.mean(), precision) )
         elif m == '#':
             statistics.append( len(values) )
         elif m.startswith('Q'):
             q = int(m[1:]) / 100
             i = min(int( len(values)*q ), len(values)-1)
-            statistics.append( values[i] )
+            statistics.append( round(values[i], precision) )
     
     if beautiful_print:
         statistics_str = [ str(d) for d in statistics ]
@@ -1157,8 +1414,181 @@ def get_statistics(values, be_sorted=False, beautiful_print=True):
     
     return met, statistics
 
+##############################################
+### Tensor information
+##############################################
 
+def print_tensor_info(tensor, print_source:bool = False, print_content:bool = False):
+    """
+    Print tensor information
+    """
+    import torch
+    import numpy as np
+    from inspect import getframeinfo, stack
+    
+    caller = getframeinfo(stack()[1][0])
+    filename = caller.filename
+    if print_source:
+        print(f'File "{os.path.abspath(caller.filename)}", line {caller.lineno}')
+    
+    if isinstance(tensor, np.ndarray):
+        print(f"{filename} ({caller.lineno}): type(tensor)={type(tensor)}, tensor.dtype={tensor.dtype}, tensor.shape={tensor.shape}")
+    elif isinstance(tensor, torch.Tensor):
+        print(f"{filename} ({caller.lineno}): type(tensor)={type(tensor)}, tensor.dtype={tensor.dtype}, tensor.shape={tensor.shape}, tensor.device={tensor.device}")
+    else:
+        print(f"type(tensor) = {type(tensor)}")
+    
+    if print_content:
+        print(tensor)
 
+def print_dict(dict_var: dict, color:bool = True, indent:int = 0, max_elem:int = None, max_layer:int = None, layer:int = 0):
+    """
+    Print dictionary content
+    
+    Parameters
+    --------------
+    dict_var: dict
+    color: bool. Print with color
+    indent: indent
+    max_elem: max element to print
+    max_layer: max recursive layers
+    layer: current layer
+    """
+    import torch
+    import numpy as np
+    def mtype(var):
+        return f"{type(var).__module__}.{type(var).__qualname__}"
+    if color:
+        from IPyRSSA.Colors import f
+        fk = lambda x: f(x, 'blue')
+    else:
+        fk = lambda x: x
+    if not isinstance(dict_var, dict):
+        raise RuntimeError(f"Expect input dict but got {type(dict_var)}")
+    if max_elem is None:
+        max_elem = 1_000_0000_000
+    max_elem = max_elem + 1 if max_elem % 2 == 1 else max_elem
+    assert max_elem >= 1
+    for i,(k,v) in enumerate(dict_var.items()):
+        indent_prefix = " " * indent
+        prefix = indent_prefix + fk(f"{k}")
+        if i < max_elem // 2 or i >= len(dict_var) - max_elem // 2:
+            if isinstance(v, (list, tuple)):
+                print(f"{prefix}: type={mtype(v)}, len(v)={len(v)}")
+            elif isinstance(v, dict):
+                print(f"{prefix}: type={mtype(v)}, len(v)={len(v)}")
+                if max_layer is None or max_layer > layer:
+                    print_dict(v, color=color, indent=indent+4, max_elem=max_elem, max_layer=max_layer, layer=layer+1)
+                elif max_layer is not None:
+                    print(f"{indent_prefix}    ....")
+            elif isinstance(v, (int, float)):
+                print(f"{prefix}: type={mtype(v)}, v={v}")
+            elif isinstance(v, (str, bytes)):
+                print(f"{prefix}: type={mtype(v)}, v[:20]={v[:20]}")
+            elif isinstance(v, np.ndarray):
+                print(f"{prefix}: type={mtype(v)}, v.dtype={v.dtype}, v.shape={v.shape}")
+            elif isinstance(v, torch.Tensor):
+                print(f"{prefix}: type={mtype(v)}, v.dtype={v.dtype}, v.shape={v.shape}, v.device={v.device}")
+            elif isinstance(v, object):
+                print(f"{prefix}: type={mtype(v)}")
+            else:
+                print(f"{prefix}: type={mtype(v)}")
+        elif i == max_elem // 2:
+            print(f"{indent_prefix}....")
+            # break
 
+##############################################
+### TXT index
+##############################################
+
+def build_txt_index(big_file, index_file, sep='\t', skip_head=0, n_parts=1000, disable_tqdm=False):
+    """
+    Build index file for text-format file. The first column must be numbers and sorted
+    """
+    linecount = int(subprocess.getoutput(f'wc -l {big_file}').split()[0])
+    number_list  = []
+    number_bytes = []
+    start_bytes = 0
+    last_index  = -999999
+    with open(big_file) as IN:
+        for i,line in enumerate(tqdm(IN, total=linecount, dynamic_ncols=True, disable=disable_tqdm)):
+            if i < skip_head:
+                start_bytes += len(line)
+                continue
+            index = int(line[:line.index(sep)])
+            if last_index > index:
+                raise RuntimeError(f"Error: last_index={last_index}, index={index} at line {i}")
+            number_list.append(index)
+            number_bytes.append(start_bytes)
+            start_bytes += len(line)
+            last_index = index
+    assert len(number_list) > n_parts
+    index_list = []
+    part_size = len(number_list) // n_parts
+    for i in range(0, n_parts):
+        j = part_size * i
+        while j > 0 and number_list[j-1] == number_list[j]:
+            j -= 1
+        index_list.append(( number_list[j], number_bytes[j] ))
+    with open(index_file, 'w') as OUT:
+        for index,start_bytes in index_list:
+            print(index, start_bytes, sep='\t', file=OUT)
+
+def read_txt_with_index(big_file, index, items, sep='\t', max_lines=1000000, disable_tqdm=False):
+    """
+    Read big file with index
+    """
+    data = []
+    with open(big_file) as IN:
+        for item in tqdm(items, disable=disable_tqdm):
+            i = bisect.bisect_left(index.index_array, item)
+            if i >= len(index.index_array) or (index.index_array[i] > item and i > 0):
+                i -= 1
+            _ = IN.seek(index.start_bytes_array[i])
+            for line in IN:
+                cur_item = int(line[:line.index(sep)])
+                if cur_item > item:
+                    break
+                elif cur_item == item:
+                    data.append(line)
+                    if len(data) >= max_lines:
+                        break
+    return data
+
+def read_index(index_file):
+    """
+    Read index file build from build_txt_index
+    """
+    index_array, start_bytes_array = [], []
+    with open(index_file) as IN:
+        for line in IN:
+            index, byte = [ int(x) for x in line.strip().split() ]
+            index_array.append(index)
+            start_bytes_array.append(byte)
+    index_array = np.array(index_array)
+    start_bytes_array = np.array(start_bytes_array)
+    index = argparse.Namespace(**{ 'index_array': index_array, 'start_bytes_array': start_bytes_array })
+    return index
+
+##############################################
+### DDP
+##############################################
+
+def print_deepspeed_ddp_env(only_once=False):
+    attrs = ['MASTER_ADDR', 'MASTER_PORT', 'CROSS_RANK', 'CROSS_SIZE', 'LOCAL_SIZE', 'LOCAL_RANK', 'WORLD_SIZE', 'RANK']
+    rank = int(os.environ['RANK'])
+    if not only_once or rank == 0:
+        # '\x1b[0;33;49m222\x1b[0m'
+        print("\x1b[0;33;49mDeepSpeed DDP Environment Variables\x1b[0m")
+        for attr in attrs:
+            print(f"{attr}: {os.environ.get(attr, None)}")
+
+def print_torch_ddp_env(only_once=False):
+    attrs = ['MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'RANK', 'LOCAL_WORLD_SIZE', 'LOCAL_RANK', 'GROUP_WORLD_SIZE', 'GROUP_RANK', 'ROLE_WORLD_SIZE', 'ROLE_RANK']
+    rank = int(os.environ['RANK'])
+    if not only_once or rank == 0:
+        print("\x1b[0;33;49mTorch DDP Environment Variables\x1b[0m")
+        for attr in attrs:
+            print(f"{attr}: {os.environ.get(attr, None)}")
 
 

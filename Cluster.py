@@ -46,10 +46,13 @@ job2.submit()
 
 """
 
-import os, sys, random, re, time, subprocess, shutil, tempfile
+import os, sys, random, re, time, subprocess, shutil, tempfile, gc, signal
 from . import General, Colors
 from typing import List, Optional
 from multiprocessing import Pool
+from tqdm.auto import trange, tqdm
+from os.path import abspath, join, exists, realpath
+from pathlib import Path
 
 if 'getstatusoutput' in dir(subprocess):
     from subprocess import getstatusoutput
@@ -57,15 +60,15 @@ else:
     from commands import getstatusoutput
 
 try:
-    bkill = General.require_exec("bkill", warning="", exception=True)
-    bsub = General.require_exec("bsub", warning="", exception=True)
-    bjobs = General.require_exec("bjobs", warning="", exception=True)
+    bkill = General.require_exec("bkill", warning="", exception=False)
+    bsub = General.require_exec("bsub", warning="", exception=False)
+    bjobs = General.require_exec("bjobs", warning="", exception=False)
 except NameError:
     #print(Colors.f("Error: bkill not found in PATH",fc='red'))
     pass
 
 try:
-    srun = General.require_exec("srun", warning="", exception=True)
+    srun = General.require_exec("srun", warning="", exception=False)
 except NameError:
     #print(Colors.f("Error: srun not found in PATH",fc='red'))
     pass
@@ -223,7 +226,7 @@ class JOB_HANDLE:
         
         CMD_string = self.get_submit_command()
         if verbose:
-            print(CMD_string)
+            tqdm.write(CMD_string)
         self.job_id = int( get_bsub_id(getstatusoutput(CMD_string)[1]) )
         self.has_submit = True
         
@@ -379,7 +382,7 @@ def slurm_build_dep_chain(cmd_list: List[str],
             srun_cmd += f" -d afterany:{pid} {cmd} &"
         else:
             srun_cmd += f" {cmd} &"
-        print(srun_cmd)
+        tqdm.write(srun_cmd)
         os.system(srun_cmd)
         if pid is None:
             time.sleep(sleep*2)
@@ -582,6 +585,7 @@ def print_slurm_resource():
 ##################################
 
 def run_cmd_auto_gpu(cmd, gpu_list, state_dir_name):
+    from tqdm.auto import trange, tqdm
     gpu_dev = None
     gpu_exists_file = None
     time.sleep( round(random.random(), 3)*2 )
@@ -596,12 +600,12 @@ def run_cmd_auto_gpu(cmd, gpu_list, state_dir_name):
     assert gpu_dev is not None, f"Expect one of gpu devices {gpu_list} exists in {state_dir_name}"
     os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_dev)
     # cmd = f"CUDA_VISIBLE_DEVICES={gpu_dev} "+cmd
-    print('CUDA_VISIBLE_DEVICES:', gpu_dev, cmd)
+    tqdm.write(f'CUDA_VISIBLE_DEVICES: {gpu_dev} {cmd}')
     os.system(cmd)
     if os.path.exists(gpu_exists_file):
         os.remove(gpu_exists_file)
     else:
-        print(f"Warning: {gpu_exists_file} not exists")
+        tqdm.write(f"Warning: {gpu_exists_file} not exists")
 
 class Multi_GPU_CMD:
     """
@@ -610,6 +614,7 @@ class Multi_GPU_CMD:
     runner.run()
     """
     def __init__(self, gpu_list, cmd_list, state_dir_name=None):
+        from tqdm.auto import trange, tqdm
         self.gpu_list = gpu_list
         if state_dir_name is None:
             self.state_dir_name = tempfile.mkdtemp(prefix='multigpu_')
@@ -617,10 +622,10 @@ class Multi_GPU_CMD:
         else:
             self.state_dir_name = state_dir_name
             self.state_dir_type = 'specified'
-        print("state_dir_name:", self.state_dir_name)
+        tqdm.write(f"state_dir_name: {self.state_dir_name}")
         self.cmd_list = cmd_list
     
-    def run(self):
+    def run(self, disable_tqdm=True):
         assert isinstance(self.cmd_list, (list, tuple)), self.cmd_list
         for cmd in self.cmd_list:
             assert isinstance(cmd, str), cmd
@@ -633,7 +638,7 @@ class Multi_GPU_CMD:
             for cmd in self.cmd_list:
                 h = pool.apply_async(run_cmd_auto_gpu, (cmd, self.gpu_list, self.state_dir_name))
                 h_list.append([cmd, h])
-            for cmd, h in h_list:
+            for cmd, h in tqdm(h_list, disable=disable_tqdm, dynamic_ncols=True):
                 print(cmd)
                 _ = h.get()
     
@@ -674,7 +679,7 @@ def run_pyfunc_auto_gpu(pyfunc, args, kwargs, gpu_param_name, gpu_list, state_di
     if os.path.exists(gpu_exists_file):
         os.remove(gpu_exists_file)
     else:
-        print(f"Warning: {gpu_exists_file} not exists")
+        tqdm.write(f"Warning: {gpu_exists_file} not exists")
     return output
 
 class Multi_GPU_PYFUNC:
@@ -685,6 +690,7 @@ class Multi_GPU_PYFUNC:
     runner.run()
     """
     def __init__(self, gpu_list, pyfunc, gpu_param_name, args_list, kwargs_list, state_dir_name=None):
+        from tqdm.auto import trange, tqdm
         #print('args_list:', args_list)
         #print('kwargs_list:', kwargs_list)
         if args_list is None and kwargs_list is None:
@@ -701,7 +707,7 @@ class Multi_GPU_PYFUNC:
         else:
             self.state_dir_name = state_dir_name
             self.state_dir_type = 'specified'
-        print("state_dir_name:", self.state_dir_name)
+        tqdm.write(f"state_dir_name: {self.state_dir_name}")
         self.pyfunc      = pyfunc
         self.gpu_param_name = gpu_param_name
         self.gpu_list    = gpu_list
@@ -713,7 +719,7 @@ class Multi_GPU_PYFUNC:
         for gpu in self.gpu_list:
             assert isinstance(gpu, int), gpu
     
-    def run(self):
+    def run(self, disable_tqdm=True):
         num_proc = len(self.gpu_list)
         output_list = []
         with Pool(num_proc) as pool:
@@ -721,7 +727,7 @@ class Multi_GPU_PYFUNC:
             for args, kwargs in zip(self.args_list, self.kwargs_list):
                 h = pool.apply_async(run_pyfunc_auto_gpu, (self.pyfunc, args, kwargs, self.gpu_param_name, self.gpu_list, self.state_dir_name))
                 h_list.append(h)
-            for h in h_list:
+            for h in tqdm(h_list, disable=disable_tqdm, dynamic_ncols=True):
                 output_list.append(h.get())
         return output_list
     
@@ -759,6 +765,7 @@ def get_docker_limit():
 
     ### MEM
     limits['MEM'] = int(open('/sys/fs/cgroup/memory/memory.limit_in_bytes').read()) // 1024 ** 3
+    limits['MEM_Usage'] = int(open('/sys/fs/cgroup/memory/memory.usage_in_bytes').read()) // 1024 ** 3
 
     return limits
 
@@ -781,13 +788,184 @@ class ProgLock:
         self.verbose = verbose
     
     def __enter__(self):
-        while not os.path.exists(self.tagfile):
-            if self.verbose:
-                print(f"Tag file {self.tagfile} not found. wait {self.wait_second}s...")
-            time.sleep(self.wait_second)
-        os.remove(self.tagfile)
+        from tqdm.auto import trange, tqdm
+        while True:
+            while not os.path.exists(self.tagfile):
+                if self.verbose:
+                    tqdm.write(f"Tag file {self.tagfile} not found. wait {self.wait_second}s...")
+                time.sleep(self.wait_second)
+            try:
+                os.remove(self.tagfile)
+                break
+            except FileNotFoundError:
+                tqdm.write(f"Delete file {self.tagfile} failed. wait {self.wait_second}s...")
+                time.sleep(self.wait_second)
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         from pathlib import Path
         Path(self.tagfile).touch()
+
+
+class ParallelTaskManager:
+    def __init__(self, input_dir, file_suffix, output_dir, process_fn, lock_file, filter_fn=None):
+        """
+        input_dir: directory to contain candidate files
+        file_suffix: files with this surfix will be runned
+        output_dir: output directory
+        process_fn: a callable object with two parameters (in_file, out_prefix)
+        lock_file: a lock file to prevent conflics
+        filter_fn: filter function with parameters (file_name), return True to exec and False to skip
+        """
+        self.input_dir   = input_dir
+        self.file_suffix = file_suffix
+        self.output_dir  = output_dir
+        self.process_fn  = process_fn
+        self.lock_file   = lock_file
+        self.filter_fn   = filter_fn if filter_fn is not None else (lambda x: True)
+        
+        # assert realpath(input_dir) != realpath(output_dir), f"input_dir must be diffrent from output_dir"
+        def sigint_handler(sig, frame):
+            raise RuntimeError("SIGINT")
+        signal.signal(signal.SIGINT, sigint_handler) # 2
+    
+    def get_candidates(self, verbose=True):
+        from tqdm.auto import trange, tqdm
+        candidate_files = [f for f in os.listdir(self.input_dir) if f.endswith(self.file_suffix) and self.filter_fn(f)]
+        running_files, done_files, err_files, to_run_files = [], [], [], []
+        for f in candidate_files:
+            f = f[:-len(self.file_suffix)]
+            if exists(join(self.output_dir,   f"{f}.done")):
+                done_files.append(f)
+            elif exists(join(self.output_dir, f"{f}.running")):
+                running_files.append(f)
+            elif exists(join(self.output_dir, f"{f}.error")):
+                err_files.append(f)
+            else:
+                to_run_files.append(f)
+        
+        if verbose:
+            tqdm.write(Colors.f(f"Total {len(candidate_files)} candidate files, {len(running_files)} running, {len(done_files)} done, {len(err_files)} error, {len(to_run_files)} to run.", 'yellow'))
+        
+        return running_files, done_files, err_files, to_run_files
+    
+    def run(self, verbose=True):
+        from tqdm.auto import trange, tqdm
+        while True:
+            gc.collect()
+            with ProgLock(self.lock_file):
+                
+                running_files, done_files, err_files, to_run_files = self.get_candidates(verbose=verbose)
+                
+                if len(to_run_files) == 0 and len(err_files) == 0:
+                    break
+                
+                if len(err_files) > 0:
+                    name     = err_files[0]
+                else:
+                    name     = to_run_files[0]
+                
+                in_file          = join(self.input_dir,  name+self.file_suffix)
+                out_prefix       = join(self.output_dir, name)
+                running_tag_file = join(self.output_dir, f"{name}.running")
+                done_tag_file    = join(self.output_dir, f"{name}.done")
+                err_tag_file     = join(self.output_dir, f"{name}.error")
+                
+                if exists(running_tag_file):
+                    continue
+                tqdm.write(Colors.f(f"Create {running_tag_file}", 'blue'))
+                Path(running_tag_file).touch()
+                if exists(err_tag_file):
+                    os.remove(err_tag_file)
+            try:
+                # run_main(in_file, out_prefix, n_process=n_process, n_threads=n_threads, jackhmmer_ncpu=jackhmmer_ncpu, min_msa=min_msa, disable_tqdm=disable_tqdm)
+                start_time = time.time()
+                self.process_fn(in_file, out_prefix)
+                exec_time = time.time() - start_time
+                if verbose:
+                    tqdm.write(Colors.f(f"{name} finished: exec {exec_time:.1f}s", 'green'))
+            except Exception as e:
+                tqdm.write(Colors.f("===============ERROR===============", 'red'))
+                tqdm.write(e)
+                os.remove(running_tag_file)
+                Path(err_tag_file).touch()
+                return -1
+            
+            os.remove(running_tag_file)
+            Path(done_tag_file).touch()
+        
+        return 0
+
+
+###################################               
+### Manage Torch DDP environment
+###################################     
+
+def get_rank():
+    """
+    Get current rank. 
+    Priority:
+    - torch.distributed.get_rank()
+    - OMPI_COMM_WORLD_RANK
+    - RANK
+    """
+    import torch
+    if torch.distributed.is_initialized():
+        return torch.distributed.get_rank()
+    if 'OMPI_COMM_WORLD_RANK' in os.environ:
+        return int(os.environ['OMPI_COMM_WORLD_RANK'])
+    if 'RANK' in os.environ:
+        return int(os.environ['RANK'])
+    return 0
+
+def get_world_size():
+    """
+    Get current rank. 
+    Priority:
+    - torch.distributed.get_world_size()
+    - OMPI_COMM_WORLD_SIZE
+    - WORLD_SIZE
+    - torch.cuda.device_count()
+    """
+    import torch
+    if torch.distributed.is_initialized():
+        return torch.distributed.get_world_size()
+    if 'OMPI_COMM_WORLD_SIZE' in os.environ:
+        return int(os.environ['OMPI_COMM_WORLD_SIZE'])
+    if 'WORLD_SIZE' in os.environ:
+        return int(os.environ['WORLD_SIZE'])
+    return torch.cuda.device_count()
+
+def print_rank_0(*args, **kwargs):
+    """
+    Print only in rank_0
+    """
+    if get_rank() == 0:
+        print(*args, **kwargs)
+
+def init_distributed(verbose=True):
+    """
+    Initialize distributed environment
+    """
+    import torch, os
+    if 'WORLD_SIZE' in os.environ and 'LOCAL_WORLD_SIZE' in os.environ:
+        world_size, local_world_size = int(os.environ['WORLD_SIZE']), int(os.environ['LOCAL_WORLD_SIZE'])
+        if verbose:
+            print_rank_0(f">>>>>>>>> WORLD_SIZE={world_size}, LOCAL_WORLD_SIZE={local_world_size} <<<<<<<<<<<")
+        assert world_size % local_world_size == 0
+        num_nodes = world_size // local_world_size
+        devices = local_world_size
+    elif 'OMPI_COMM_WORLD_SIZE' in os.environ:
+        import deepspeed
+        deepspeed.init_distributed()
+        world_size, local_world_size = int(os.environ['OMPI_COMM_WORLD_SIZE']), int(os.environ['OMPI_COMM_WORLD_LOCAL_SIZE'])
+        if verbose:
+            print_rank_0(f">>>>>>>>> WORLD_SIZE={world_size}, LOCAL_WORLD_SIZE={local_world_size} <<<<<<<<<<<")
+        assert world_size % local_world_size == 0
+        num_nodes = world_size // local_world_size
+        devices = local_world_size
+    else:
+        num_nodes = 1
+        devices = torch.cuda.device_count()
+        world_size = torch.cuda.device_count()
+    return num_nodes, devices, world_size
 

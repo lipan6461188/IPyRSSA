@@ -230,15 +230,15 @@ def search_subseq_from_genome(Seqer, chrID, start, end, strand, pattern, caller=
 ### Clustering sequences
 ###################################
 
-def cluster_sequences(seq_dict, method='cd-hit', seq_type='prot', cutoff=0.80, verbose=False):
+def cluster_sequences(seq_dict, method='cd-hit', seq_type='prot', id_cutoff=0.80, cov_cutoff=0.5, verbose=False):
     """
     Parameters
     ------------
     seq_dict: {seq_name: 'AXJIJDIWIJDIWD', ...}
     method: cd-hit or mmseqs
     seq_type: prot or dna
-    cutoff: float
-        Similarity cutoff
+    id_cutoff: float
+        Similarity id_cutoff
     verbose: bool
         Print the command
     
@@ -260,8 +260,8 @@ def cluster_sequences(seq_dict, method='cd-hit', seq_type='prot', cutoff=0.80, v
         output_fa = os.path.join(workdir, "output.fa")
         clust_fn = os.path.join(workdir, "output.fa.clstr")
         General.write_fasta(seq_dict, input_fa)
-    
-        cmd = f"{cdhit_bin} -i {input_fa} -o {output_fa} -c {cutoff}"
+        
+        cmd = f"{cdhit_bin} -i {input_fa} -o {output_fa} -c {id_cutoff} -aL {cov_cutoff} -aS {cov_cutoff}"
         if verbose:
             print(cmd)
         _ = subprocess.getoutput(cmd)
@@ -279,7 +279,7 @@ def cluster_sequences(seq_dict, method='cd-hit', seq_type='prot', cutoff=0.80, v
         tmp_dir     = os.path.join(workdir, "tmp")
         General.write_fasta(seq_dict, input_fa)
     
-        cmd = f"{mmseqs_bin} easy-cluster --cov-mode 0 --threads 8 -c {cutoff} {input_fa} {output_pref} {tmp_dir}"
+        cmd = f"{mmseqs_bin} easy-cluster --cov-mode 0 --threads 8 --min-seq-id {id_cutoff} -c {cov_cutoff} {input_fa} {output_pref} {tmp_dir}"
         if verbose:
             print(cmd)
         _ = subprocess.getoutput(cmd)
