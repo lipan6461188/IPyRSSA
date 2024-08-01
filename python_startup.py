@@ -278,7 +278,6 @@ def import_tf2(set_visible_gpu=False, visible_gpu_id=-1):
     
     tf.random.set_seed(1216)
 
-
 print("it() to import pytorch")
 def it():
     global torch
@@ -287,11 +286,13 @@ def it():
     global pytree
     global Dataset
     global DataLoader
+    global checkpoint
     
     import torch
     import torch.nn as nn
     import torch.nn.functional as F
     import torch.utils._pytree as pytree
+    from torch.utils.checkpoint import checkpoint
     from torch.utils.data import Dataset, DataLoader
 
 print("it() to import huggingface")
@@ -299,8 +300,12 @@ def hf():
     global AutoModelForCausalLM
     global AutoTokenizer
     global AutoConfig
+    global safetensors
+    global diffusers
     
     from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+    import safetensors
+    import diffusers
 
 
 print("import_pdb() to import PDB related functions")

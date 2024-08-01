@@ -300,7 +300,6 @@ def new_job(command, queue="Z-ZQF", cpu=1, job_name="", logFn="", errFn=""):
     
     return job
 
-
 def slurm_build_dep_chain(cmd_list: List[str], 
                     name_list: Optional[List[str]] = None, 
                     num_chain: int = 1, 
@@ -735,6 +734,73 @@ class Multi_GPU_PYFUNC:
         if self.state_dir_type == 'generated':
             shutil.rmtree(self.state_dir_name)
 
+##################################
+#### Multi-processing or Multi-threading
+##################################
+
+def parallel_run_func(pyfunc, param_list, param_input_type='list', num_parallel=10, paradigm='Thread', disable_tqdm=False):
+    """
+    Parallel run python function
+    
+    Parameters
+    -----------------
+    pyfunc: python callable
+    param_list: parameters list for parallel
+    param_input_type: list or dict
+    num_parallel: int. Number of threads or process
+    paradigm: Thread or Process
+    disable_tqdm: Disable tqdm progress bar
+    
+    Return
+    ----------------
+    List of return object
+    
+    Example
+    ----------------
+    def square(x):
+        return x**2
+    
+    parallel_run_func(square, [[1], [2], [3], [4]], 'list', num_parallel=10, paradigm='Thread')
+    parallel_run_func(square, [[1], [2], [3], [4]], 'list', num_parallel=10, paradigm='Process')
+    """
+    from multiprocess import Pool
+    from concurrent.futures.thread import ThreadPoolExecutor
+    import concurrent
+    from tqdm import tqdm
+    
+    assert param_input_type in ('list', 'dict')
+    assert paradigm in ('Thread', 'Process')
+    
+    results = [None]*len(param_list)
+    
+    if paradigm == 'Thread':
+        Executor = (lambda x: ThreadPoolExecutor(max_workers=x))
+    else:
+        Executor = (lambda x: Pool(processes=x))
+    
+    with Executor(num_parallel) as executor:
+        tasks = {}
+        for i, param in enumerate(param_list):
+            if paradigm == 'Thread':
+                if param_input_type == 'list':
+                    handle = executor.submit(pyfunc, *param)
+                else:
+                    handle = executor.submit(pyfunc, **param)
+            else:
+                if param_input_type == 'list':
+                   handle = executor.apply_async(pyfunc, args=param)
+                else:
+                   handle = executor.apply_async(pyfunc, kwds=param)
+            tasks[handle] = i
+        if paradigm == 'Thread':
+            for handle in tqdm(concurrent.futures.as_completed(tasks), total=len(tasks), disable=disable_tqdm, dynamic_ncols=True, leave=False):
+                i = tasks[handle]
+                results[i]= handle.result()
+        else:
+            for handle,i in tqdm(tasks.items(), total=len(tasks), disable=disable_tqdm, dynamic_ncols=True, leave=False):
+               results[i] = handle.get()
+    
+    return results
 
 ###################################               
 ### Get resource limitations in docker environment
@@ -804,7 +870,6 @@ class ProgLock:
     def __exit__(self, exc_type, exc_val, exc_tb):
         from pathlib import Path
         Path(self.tagfile).touch()
-
 
 class ParallelTaskManager:
     def __init__(self, input_dir, file_suffix, output_dir, process_fn, lock_file, filter_fn=None):
@@ -895,8 +960,7 @@ class ParallelTaskManager:
         
         return 0
 
-
-###################################               
+###################################
 ### Manage Torch DDP environment
 ###################################     
 
