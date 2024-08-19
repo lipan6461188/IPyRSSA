@@ -926,7 +926,7 @@ def get_monomer_gdtscore(pdb_pd, pdb_gt, seq_depend_realn=True):
     
     return gdt_scores
 
-def get_monomer_lddt(pdb_pd, pdb_gt):
+def get_monomer_lddt(pdb_pd, pdb_gt, strict=True):
     """
     Calculate monomer lDDT
     
@@ -934,6 +934,7 @@ def get_monomer_lddt(pdb_pd, pdb_gt):
     -----------------
     pdb_pd: predicted PDB file
     pdb_gt: ground truth PDB file
+    strict: read pdb file with sequences
     
     Return
     ----------------
@@ -1013,8 +1014,8 @@ def get_monomer_lddt(pdb_pd, pdb_gt):
             per_residue=per_residue,
         )
     
-    pd_prot = af2_features.read_pdb(pdb_pd)
-    gt_prot = af2_features.read_pdb(pdb_gt, full_padding=True)
+    pd_prot = af2_features.read_pdb(pdb_pd, full_padding=strict)
+    gt_prot = af2_features.read_pdb(pdb_gt, full_padding=strict)
     L1 = pd_prot.atom_positions.shape[0]
     L2 = gt_prot.atom_positions.shape[0]
     s1 = pd_prot.seq(True)
@@ -1026,7 +1027,8 @@ def get_monomer_lddt(pdb_pd, pdb_gt):
     lddt = lddt_ca(pd_prot.atom_positions, gt_prot.atom_positions, gt_prot.atom_mask).cpu().numpy()
     return lddt
 
-def parallel_get_monomer_metrics(pd_gt_pairs, method='TMscore', seq_depend_realn=True, metric_type='TM-score', num_process=25, disable_tqdm=False):
+
+def parallel_get_monomer_metrics(pd_gt_pairs, method='TMscore', seq_depend_realn=True, strict=True, metric_type='TM-score', num_process=25, disable_tqdm=False):
     """
     Calculate monomer TMscore with parrallel
     
@@ -1035,7 +1037,8 @@ def parallel_get_monomer_metrics(pd_gt_pairs, method='TMscore', seq_depend_realn
     pd_gt_pairs: [(pd_pdb_1, gt_pdb_1), (pd_pdb_2, gt_pdb_2), ...]
     method: TMscore or USalign
     seq_depend_realn: realign two structures with sequence
-    metric_type: TM-score, GDT, lDDT
+    strict: read PDB file require sequence padding (only for lDDT)
+    metric_type: TM-score, GDT, lDDT, RMSD
     num_process: number of process
     disable_tqdm: disable tqdm progress bar
     
@@ -1043,7 +1046,7 @@ def parallel_get_monomer_metrics(pd_gt_pairs, method='TMscore', seq_depend_realn
     ----------------
     List of results from get_monomer_tmscore funcs
     """
-    assert metric_type in ('TM-score', 'GDT', 'lDDT')
+    assert metric_type in ('TM-score', 'GDT', 'lDDT', 'RMSD')
     results = [None]*len(pd_gt_pairs)
     with ThreadPoolExecutor(max_workers=num_process) as executor:
         tasks = {}
@@ -1070,13 +1073,25 @@ def parallel_get_monomer_metrics(pd_gt_pairs, method='TMscore', seq_depend_realn
                 # get_monomer_lddt(pdb_pd, pdb_gt)
                 kwds = { 
                         'pdb_pd': pd_pdb,
-                        'pdb_gt': gt_pdb
+                        'pdb_gt': gt_pdb,
+                        'strict': strict
                 }
                 handle = executor.submit(get_monomer_lddt, **kwds)
+            elif metric_type == 'RMSD':
+                kwds = { 
+                        'pdb_pd': pd_pdb,
+                        'pdb_gt': gt_pdb,
+                        'method': method, 
+                        'seq_depend_realn': seq_depend_realn
+                }
+                handle = executor.submit(get_monomer_rmsd, **kwds)
             tasks[handle] = i
         for handle in tqdm(concurrent.futures.as_completed(tasks), total=len(tasks), disable=disable_tqdm, dynamic_ncols=True, leave=False):
             i = tasks[handle]
-            results[i]= handle.result()
+            try:
+                results[i] = handle.result()
+            except Exception as e:
+                print(f"{i}: error={e}")
     return results
 
 ##############################################
@@ -1247,17 +1262,23 @@ def get_msa_perRes_Neff(msa, seq_id_cutoff=0.8, device='cpu', disable_tqdm=True)
     
     # [N_seq, L_seq]
     msa_enc = torch.from_numpy(np.array([ af2_features.seq2aatype(seq) for seq in msa ], dtype=np.int32)).to(device)
-    pair_seq_id = torch.zeros([num_seq, num_seq], dtype=torch.float32, device=device)
+    # pair_seq_id = torch.zeros([num_seq, num_seq], dtype=torch.half, device='cpu')
+    inv_n_eff_weights = torch.zeros([num_seq], dtype=torch.float, device=device)
     
     for i in trange(num_seq, disable=disable_tqdm):
-        pair_seq_id[i] = torch.mean((msa_enc[i][None, :] == msa_enc).float(), axis=1)
+        # pair_seq_id[i] = torch.mean((msa_enc[i][None, :] == msa_enc).half(), axis=1).cpu()
+        inv_n_eff_weights[i] = 1.0 / (torch.mean((msa_enc[i][None, :] == msa_enc).float(), axis=1) > seq_id_cutoff).sum()
     
-    inv_n_eff_weights = 1 / (pair_seq_id > seq_id_cutoff).sum(1)
+    #msa_enc = msa_enc.cpu().float()
+    #pair_seq_id = pair_seq_id.cpu().float()
+    #torch.cuda.empty_cache()
+    # inv_n_eff_weights = 1 / (pair_seq_id > seq_id_cutoff).sum(1)
     Neff = torch.sum(inv_n_eff_weights[:, None] * ( msa_enc != gap_tok_id ).float(), axis=0)
     Neff = Neff.cpu().numpy()
     
+    #del msa_enc, pair_seq_id
+    #torch.cuda.empty_cache()
     return Neff
-
 def print_msa(msa, len_per_row=100, annotations=None, colors=None, OUT=sys.stdout, print_id_matrix:bool=False):
     """
     Print MSA as text

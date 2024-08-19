@@ -12,7 +12,7 @@ import os, sys, time, re, random, pickle, copy, gzip, io, yaml, logging, configp
 from queue import PriorityQueue, Queue, deque, LifoQueue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import Pool
-from os.path import exists, join, getsize, isfile, isdir, abspath, basename, realpath
+from os.path import exists, join, getsize, isfile, isdir, abspath, basename, realpath, dirname
 from os import listdir
 from typing import Dict, Union, Optional, List, Tuple, Mapping
 from functools import partial

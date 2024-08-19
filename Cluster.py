@@ -738,7 +738,7 @@ class Multi_GPU_PYFUNC:
 #### Multi-processing or Multi-threading
 ##################################
 
-def parallel_run_func(pyfunc, param_list, param_input_type='list', num_parallel=10, paradigm='Thread', disable_tqdm=False):
+def parallel_run_func(pyfunc, param_list, param_input_type='list', process_result_func=None, num_parallel=10, paradigm='Thread', disable_tqdm=False):
     """
     Parallel run python function
     
@@ -750,6 +750,8 @@ def parallel_run_func(pyfunc, param_list, param_input_type='list', num_parallel=
     num_parallel: int. Number of threads or process
     paradigm: Thread or Process
     disable_tqdm: Disable tqdm progress bar
+    process_result_func: callable. process result on finished.
+        process_result_func(param_object, result) -> result
     
     Return
     ----------------
@@ -770,7 +772,7 @@ def parallel_run_func(pyfunc, param_list, param_input_type='list', num_parallel=
     
     assert param_input_type in ('list', 'dict')
     assert paradigm in ('Thread', 'Process')
-    
+
     results = [None]*len(param_list)
     
     if paradigm == 'Thread':
@@ -795,10 +797,10 @@ def parallel_run_func(pyfunc, param_list, param_input_type='list', num_parallel=
         if paradigm == 'Thread':
             for handle in tqdm(concurrent.futures.as_completed(tasks), total=len(tasks), disable=disable_tqdm, dynamic_ncols=True, leave=False):
                 i = tasks[handle]
-                results[i]= handle.result()
+                results[i] = (handle.result() if process_result_func is None else process_result_func(param_list[i], handle.result()))
         else:
             for handle,i in tqdm(tasks.items(), total=len(tasks), disable=disable_tqdm, dynamic_ncols=True, leave=False):
-               results[i] = handle.get()
+               results[i] = (handle.get() if process_result_func is None else process_result_func(param_list[i], handle.get()))
     
     return results
 
