@@ -654,7 +654,6 @@ def visual_structure_entropy(sequence, shape_list=None, si=-0.6, sm=1.8, md=None
 #####################################
 
 
-
 class Chimera:
     """
     Run UCSF Chimera with python binding
@@ -722,7 +721,4 @@ class Chimera:
     def __del__(self):
         if self.delete_workdir:
             self.clear()
-
-
-
 

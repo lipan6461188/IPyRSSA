@@ -2,13 +2,12 @@
 # ssh -tt -p 20000 zhangqf7@166.111.152.116 'scp /Share2/home/zhangqf/lipan/Load_Env/python_startup.py lipan@10.10.91.12:/home/lipan/usr/Load_Env'
 # Lipan's .startup.py file
 
-
 def warn_f(text):
     code = "%d;%d;%d" % (0, 31, 49)
     return "\x1b["+code+"m"+text+"\x1b[0m"
  
 print(f"(run {__file__})")
-import os, sys, time, re, random, pickle, copy, gzip, io, yaml, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string, code, warnings, concurrent, gc, functools, types, traceback, base64, bz2, ctypes
+import os, sys, time, re, random, pickle, copy, gzip, io, yaml, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string, code, warnings, concurrent, gc, functools, types, traceback, base64, bz2, ctypes, tarfile
 from queue import PriorityQueue, Queue, deque, LifoQueue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import Pool
@@ -307,7 +306,6 @@ def hf():
     import safetensors
     import diffusers
 
-
 print("import_pdb() to import PDB related functions")
 def import_pdb():
     global pdb_data
@@ -332,4 +330,11 @@ def import_pdb():
     rc              = import_module("alphafold.common", "residue_constants")
     Kalign          = import_module("alphafold.data.tools", "kalign")
 
+
+def str2date(date_str, fmt='%Y-%m-%d'):
+    from datetime import datetime
+    return datetime.strptime(date_str, fmt)
+
+def date2str(date, fmt='%Y-%m-%d'):
+    return date.strftime(fmt)
 

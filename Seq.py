@@ -1,8 +1,9 @@
 #-*- coding:utf-8 -*-
 
-import re
+import os, sys, time, re, random, pickle, copy, gzip, io, yaml, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string, code, warnings, concurrent, gc, functools, types, traceback, base64, bz2, ctypes
 from pyliftover import LiftOver
-import sys, os
+from tqdm.auto import tqdm, trange
+from os.path import exists, join, getsize, isfile, isdir, abspath, basename, realpath, dirname
 from . import General
 
 # def reverse_comp(sequence):
@@ -225,6 +226,122 @@ def search_subseq_from_genome(Seqer, chrID, start, end, strand, pattern, caller=
     
     return hits
 
+
+###################################
+### Fasta Reader
+###################################
+
+class FastaReader:
+    def __init__(self, fasta_file, index_file=None, disable_tqdm=False):
+        
+        self.fasta_file = fasta_file
+        self.index_file = index_file
+        self.index_file = self.build_index(disable_tqdm=disable_tqdm)
+        index           = self.read_fasta_index(disable_tqdm=disable_tqdm)
+        self.names      = index[0]
+        self.ranges     = index[1]
+    
+    def build_index(self, disable_tqdm=False):
+        """
+        Build index file for Fasta
+        
+        Parameters
+        -----------------
+        disable_tqdm: Disable tqdm progress bar
+        
+        Return
+        ----------------
+        index_file
+        """
+        
+        if self.index_file is None:
+            self.index_file = self.fasta_file + '.index'
+        
+        lc = int(subprocess.getoutput(f'wc -l {self.fasta_file}').split()[0])
+        if os.path.exists(self.index_file):
+            return self.index_file
+        
+        with open(self.index_file, 'w') as OUT, open(self.fasta_file) as IN:
+            byte_start = byte = 0
+            for line in tqdm(IN, dynamic_ncols=True, total=lc, disable=disable_tqdm, desc='Build Fasta Index'):
+                if line.startswith('>'):
+                    if byte_start < byte:
+                        print(header, byte_start, byte, sep='\t', file=OUT, flush=True)
+                    header = line[1:].split()[0]
+                    byte_start = byte
+                byte += len(line)
+            if byte_start < byte:
+                print(header, byte_start, byte, sep='\t', file=OUT, flush=True)
+        
+        cmd = f"sort --parallel={os.cpu_count()//2} -S 10G -k1,1 {self.index_file} > {self.index_file}.sorted"
+        status, output = subprocess.getstatusoutput(cmd)
+        if status != 0:
+            print(f"Error in sorting: {output}")
+            return None
+        else:
+            _ = os.system(f"mv {self.index_file}.sorted {self.index_file}")
+        
+        return self.index_file
+    
+    def read_fasta_index(self, disable_tqdm=False):
+        lc = int(subprocess.getoutput(f'wc -l {self.index_file}').split()[0])
+        names = []
+        ranges = []
+        with open(self.index_file) as IN:
+            for line in tqdm(IN, total=lc, dynamic_ncols=True, desc='Read Fasta Index'):
+                name, start, end = line.strip().split()
+                if len(names) > 0:
+                    assert name > names[-1], f"Expect header be sorted. but got {names[-1]} and {name}"
+                names.append(name)
+                ranges.append((int(start), int(end)))
+        return (names, ranges)
+    
+    def get(self, name=None, i=None, return_all=False):
+        """
+        Get sequence
+        
+        Parameters
+        -----------------------
+        name: str
+        return_all: bool. return (header, annot, seq) or only seq
+        """
+        if name is not None:
+            # (names, ranges) = (self.names, self.ranges)
+            i = General.bi_search(name, self.names, retern_index=True)
+            assert i >= 0, f"Expect {name} in names, but not found"
+            start, end = self.ranges[i]
+        elif i is not None:
+            start, end = self.ranges[i]
+        else:
+            raise RuntimeError(f"One of name and i must be specified")
+        
+        with open(self.fasta_file) as IN:
+            _ = IN.seek(start)
+            content = IN.read(end - start)
+        
+        lines  = content.strip().split('\n')
+        header = lines[0][1:].split()[0]
+        annot  = lines[0][1+len(header)+1:]
+        seq    = "".join(lines[1:])
+        
+        if return_all:
+            return (header, annot, seq)
+        else:
+            return seq
+    
+    def __len__(self):
+        return len(self.names)
+    
+    def __getitem__(self, i):
+        if isinstance(i, int):
+            return self.get(i=i, return_all=True)
+        elif isinstance(i, str):
+            return self.get(name=i)
+        else:
+            raise RuntimeError(f"Expect i be int or str, but got {type(i)}")
+    
+    def __repr__(self):
+        return f"FastaReader object with {len(self.names)} sequences"
 
 ###################################
 ### Clustering sequences

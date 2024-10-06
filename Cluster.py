@@ -300,6 +300,7 @@ def new_job(command, queue="Z-ZQF", cpu=1, job_name="", logFn="", errFn=""):
     
     return job
 
+
 def slurm_build_dep_chain(cmd_list: List[str], 
                     name_list: Optional[List[str]] = None, 
                     num_chain: int = 1, 
@@ -873,6 +874,7 @@ class ProgLock:
         from pathlib import Path
         Path(self.tagfile).touch()
 
+
 class ParallelTaskManager:
     def __init__(self, input_dir, file_suffix, output_dir, process_fn, lock_file, filter_fn=None):
         """
@@ -952,7 +954,7 @@ class ParallelTaskManager:
                     tqdm.write(Colors.f(f"{name} finished: exec {exec_time:.1f}s", 'green'))
             except Exception as e:
                 tqdm.write(Colors.f("===============ERROR===============", 'red'))
-                tqdm.write(e)
+                tqdm.write(str(e))
                 os.remove(running_tag_file)
                 Path(err_tag_file).touch()
                 return -1
@@ -962,7 +964,8 @@ class ParallelTaskManager:
         
         return 0
 
-###################################
+
+###################################               
 ### Manage Torch DDP environment
 ###################################     
 

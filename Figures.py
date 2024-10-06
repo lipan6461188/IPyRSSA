@@ -406,8 +406,5 @@ def set_matplotlib_font(family=None, serif=None, weight=None, size=None):
         plt.rcParams["font.weight"] = weight
     if size is not None:
         plt.rcParams["font.size"] = size
-    
-
-
 
 

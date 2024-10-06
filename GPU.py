@@ -1,6 +1,7 @@
 #-*- coding:utf-8 -*-
 
-import os, sys, subprocess, random, time, re, General
+import os, sys, subprocess, random, time, re
+from IPyRSSA import General
 
 if 'getstatusoutput' in dir(subprocess):
     from subprocess import getstatusoutput

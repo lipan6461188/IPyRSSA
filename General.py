@@ -2,10 +2,12 @@
 
 import sys, os, shutil, re, logging, subprocess, string, io, argparse, bisect, concurrent
 from os.path import exists, join, getsize, isfile, isdir, abspath, basename
+from typing import Dict, Union, Optional, List, Tuple, Mapping
 import numpy as np
 import pandas as pd
 from tqdm.auto import trange, tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Union, Optional, List, Tuple, Mapping
 
 def load_fasta(seqFn, rem_tVersion=False, load_annotation=False, full_line_as_id=False):
     """
@@ -49,7 +51,7 @@ def load_fasta(seqFn, rem_tVersion=False, load_annotation=False, full_line_as_id
     
     if isinstance(seqFn, str):
         IN.close()
-    
+
     if cur_seq != '':
         fasta[cur_tid] = re.sub(r"\s", "", cur_seq)
     
@@ -823,17 +825,17 @@ def recursive_list(root_path, recursive=True, include_dir=False, startswith=None
         if regex is not None and re.match(regex, file) is None:
             return False
         return True
-
     matches = []
     for file in os.listdir(root_path):
         full_file = join(root_path, file)
         if isfile(full_file):
             if pass_filter(file):
                 matches.append(full_file)
-        elif isdir(full_file) and recursive:
+        elif isdir(full_file):
             if include_dir and pass_filter(file):
                 matches.append(full_file)
-            matches += recursive_list(full_file, recursive, startswith=startswith, endswith=endswith, regex=regex)
+            if recursive:
+                matches += recursive_list(full_file, recursive=recursive, include_dir=include_dir, startswith=startswith, endswith=endswith, regex=regex)
     return matches
 
 def get_monomer_tmscore(pdb_pd, pdb_gt, method='TMscore', seq_depend_realn=True):
@@ -940,7 +942,8 @@ def get_monomer_lddt(pdb_pd, pdb_gt, strict=True):
     ----------------
     np.ndarray: lDDT for each residues
     """
-    import torch, af2_features
+    import torch, af2_features, seqdb_op
+    from alphafold.common import residue_constants
     
     def permute_final_dims(tensor, inds: List[int]):
         zero_index = -1 * len(inds)
@@ -970,7 +973,7 @@ def get_monomer_lddt(pdb_pd, pdb_gt, strict=True):
         dist_l1 = torch.abs(dmat_true - dmat_pred)
         
         score = (
-            (dist_l1 < 0.5).type(dist_l1.dtype)
+              (dist_l1 < 0.5).type(dist_l1.dtype)
             + (dist_l1 < 1.0).type(dist_l1.dtype)
             + (dist_l1 < 2.0).type(dist_l1.dtype)
             + (dist_l1 < 4.0).type(dist_l1.dtype)
@@ -1016,17 +1019,85 @@ def get_monomer_lddt(pdb_pd, pdb_gt, strict=True):
     
     pd_prot = af2_features.read_pdb(pdb_pd, full_padding=strict)
     gt_prot = af2_features.read_pdb(pdb_gt, full_padding=strict)
+    
+    if not strict:
+        import torch, af2_features, seqdb_op
+        aln_pd_seq, aln_gt_seq = seqdb_op.run_kalign([pd_prot.seq(True), gt_prot.seq(True)])
+        gt_prot = af2_features.fill_monomer_prot_with_padding(gt_prot, aln_gt_seq)
+        pd_prot = af2_features.fill_monomer_prot_with_padding(pd_prot, aln_pd_seq)
+    
     L1 = pd_prot.atom_positions.shape[0]
     L2 = gt_prot.atom_positions.shape[0]
     s1 = pd_prot.seq(True)
     s2 = gt_prot.seq(True)
     
     assert L1 == L2, f"Expect same length, but got {L1} and {L2}"
-    assert s1 == s2, f"Expect same sequence, but got {s1} and {s2}"
+    if strict:
+        assert s1 == s2, f"Expect same sequence, but got {s1} and {s2}"
     
     lddt = lddt_ca(pd_prot.atom_positions, gt_prot.atom_positions, gt_prot.atom_mask).cpu().numpy()
-    return lddt
+    
+    ### Remove pd residues without corresponding gt
+    ca_pos = residue_constants.atom_order["CA"]
+    masked_lddt = lddt[ gt_prot.atom_mask[:, ca_pos] == 1 ]
+    return (lddt, masked_lddt)
 
+def get_monomer_rmsd(pdb_pd, pdb_gt, method='TMscore', seq_depend_realn=True):
+    """
+    Calculate monomer TMscore
+    
+    Parameters
+    -----------------
+    pdb_pd: predicted PDB file
+    pdb_gt: ground truth PDB file
+    method: TMscore or USalign
+    seq_depend_realn: realign two structures with sequence
+    
+    Return
+    ----------------
+    RMSD: float
+    """
+    
+    assert method in ('TMscore', 'USalign')
+    
+    if method == 'TMscore' and shutil.which('TMscore') is None:
+        print(f"TMscore not in PATH. Please install at first")
+        print(f"wget https://zhanggroup.org/TM-score/TMscore.cpp -O TMscore.cpp && g++ -O3 -o TMscore TMscore.cpp")
+    
+    if method == 'USalign' and shutil.which('USalign') is None:
+        print(f"USalign not in PATH. Please install at first")
+        print(f"wget https://zhanggroup.org/US-align/bin/module/USalign.cpp -O USalign.cpp && g++ -O3 -o USalign USalign.cpp")
+    
+    cmd = f"{method} {pdb_pd} {pdb_gt} -outfmt 1"
+    if method == 'TMscore':
+        if seq_depend_realn:
+            cmd += ' -seq'
+        else:
+            print(f"Warning: you are using TMscore without sequence realign!")
+    elif method == 'USalign':
+        if seq_depend_realn:
+            cmd += ' -TMscore 5'
+    status, output = subprocess.getstatusoutput(cmd)
+    if status != 0:
+        print(output)
+        return None, None
+    
+    lines = output.split('\n')
+    lines = [ l for l in lines if 'RMSD=' in l ]
+    if len(lines) != 1:
+        raise RuntimeError(f"Unexpected {method} output: \n{output}")
+    
+    # Lali=161      RMSD=0.92       seqID_ali=1.000
+    line = lines[0]
+    rmsd = None
+    for item in line.split():
+        if item.startswith('RMSD='):
+            rmsd = float(item[5:])
+    
+    if rmsd is None:
+        raise RuntimeError(f"Unexpected {method} output: \n{output}")
+    
+    return rmsd
 
 def parallel_get_monomer_metrics(pd_gt_pairs, method='TMscore', seq_depend_realn=True, strict=True, metric_type='TM-score', num_process=25, disable_tqdm=False):
     """
@@ -1279,6 +1350,7 @@ def get_msa_perRes_Neff(msa, seq_id_cutoff=0.8, device='cpu', disable_tqdm=True)
     #del msa_enc, pair_seq_id
     #torch.cuda.empty_cache()
     return Neff
+
 def print_msa(msa, len_per_row=100, annotations=None, colors=None, OUT=sys.stdout, print_id_matrix:bool=False):
     """
     Print MSA as text
@@ -1377,6 +1449,37 @@ def read_msa_block(msa_block_file, load_id=False, load_annot=False, sort=False):
                 else:
                     msa_txt += line
             yield load_msa_txt(io.StringIO(msa_txt), load_id=load_id, load_annot=load_annot, sort=sort)
+
+def read_fasta_block(fa_file):
+    """
+    Read fasta file
+    
+    Return
+    ------------
+    it: a iterative object
+        next(it) return (header, desc, seq)
+    """
+    with open(fa_file) as IN:
+        lines = []
+        line = IN.readline()
+        while line != '':
+            if line[0] == '>':
+                if len(lines) > 0:
+                    assert lines[0][0] == '>', lines[0]
+                    data = lines[0][1:-1].split()
+                    header, desc = data[0], " ".join(data[1:])
+                    seq = "".join(lines[1:])
+                    yield (header, desc, seq)
+                lines = [line]
+            else:
+                lines.append(line.strip())
+            line = IN.readline()
+        if len(lines) > 0:
+            assert lines[0][0] == '>', lines[0]
+            data = lines[0][1:-1].split()
+            header, desc = data[0], " ".join(data[1:])
+            seq = "".join(lines[1:])
+            yield (header, desc, seq)
 
 ##############################################
 ### Statistics
@@ -1522,74 +1625,132 @@ def print_dict(dict_var: dict, color:bool = True, indent:int = 0, max_elem:int =
 ### TXT index
 ##############################################
 
-def build_txt_index(big_file, index_file, sep='\t', skip_head=0, n_parts=1000, disable_tqdm=False):
-    """
-    Build index file for text-format file. The first column must be numbers and sorted
-    """
-    linecount = int(subprocess.getoutput(f'wc -l {big_file}').split()[0])
-    number_list  = []
-    number_bytes = []
-    start_bytes = 0
-    last_index  = -999999
-    with open(big_file) as IN:
-        for i,line in enumerate(tqdm(IN, total=linecount, dynamic_ncols=True, disable=disable_tqdm)):
-            if i < skip_head:
+class TextReader:
+    def __init__(self, big_text_file, index_file=None, sep='\t', skip_head=0, n_parts=1000, first_column_func=int, disable_tqdm=False):
+        """
+        Build index file for text-format file. The first column must be increasing sorted
+        
+        Parameters
+        ------------------
+        big_text_file: Big file to build index
+        index_file: Output index file
+        sep: Column seperator
+        skip_head: Number of rows to ignore
+        n_parts: Number of rows in index file. The big file will be splited to the specified parts.
+        first_column_func: a function apply to the first column. e.g. int, str, float
+        disable_tqdm: Disable tqdm progress bar
+        """
+        
+        self.big_text_file = big_text_file
+        self.index_file    = index_file
+        self.sep           = sep
+        self.skip_head     = skip_head
+        self.n_parts       = n_parts
+        self.first_column_func = first_column_func
+        self.index_file    = self.tindex_build(disable_tqdm=disable_tqdm)
+        self.index         = self.tindex_read()
+        self.n_parts       = len(self.index.index_array)
+    
+    def tindex_build(self, disable_tqdm=False):
+        """
+        Build index file for text-format file. The first column must be increasing sorted
+        
+        Return
+        ------------------
+        index_file
+        """
+        
+        if self.index_file is None:
+            self.index_file = self.big_text_file + '.index'
+        
+        if os.path.exists(self.index_file):
+            return self.index_file
+        
+        linecount = int(subprocess.getoutput(f'wc -l {self.big_text_file}').split()[0])
+        number_list  = []
+        number_bytes = []
+        start_bytes = 0
+        last_index  = None
+        with open(self.big_text_file) as IN:
+            for i,line in enumerate(tqdm(IN, total=linecount, dynamic_ncols=True, disable=disable_tqdm)):
+                if i < self.skip_head:
+                    start_bytes += len(line)
+                    continue
+                index = self.first_column_func(line[:line.find(self.sep)])
+                if last_index is not None and last_index > index:
+                    raise RuntimeError(f"Error: the first column of input file must be sorted, but got last_index={last_index}, index={index} at line {i}")
+                number_list.append(index)
+                number_bytes.append(start_bytes)
                 start_bytes += len(line)
-                continue
-            index = int(line[:line.index(sep)])
-            if last_index > index:
-                raise RuntimeError(f"Error: last_index={last_index}, index={index} at line {i}")
-            number_list.append(index)
-            number_bytes.append(start_bytes)
-            start_bytes += len(line)
-            last_index = index
-    assert len(number_list) > n_parts
-    index_list = []
-    part_size = len(number_list) // n_parts
-    for i in range(0, n_parts):
-        j = part_size * i
-        while j > 0 and number_list[j-1] == number_list[j]:
-            j -= 1
-        index_list.append(( number_list[j], number_bytes[j] ))
-    with open(index_file, 'w') as OUT:
-        for index,start_bytes in index_list:
-            print(index, start_bytes, sep='\t', file=OUT)
-
-def read_txt_with_index(big_file, index, items, sep='\t', max_lines=1000000, disable_tqdm=False):
-    """
-    Read big file with index
-    """
-    data = []
-    with open(big_file) as IN:
-        for item in tqdm(items, disable=disable_tqdm):
-            i = bisect.bisect_left(index.index_array, item)
-            if i >= len(index.index_array) or (index.index_array[i] > item and i > 0):
-                i -= 1
-            _ = IN.seek(index.start_bytes_array[i])
+                last_index = index
+        assert len(number_list) > self.n_parts
+        index_list = []
+        part_size = len(number_list) // self.n_parts
+        for i in range(0, self.n_parts):
+            j = part_size * i
+            while j > 0 and number_list[j-1] == number_list[j]:
+                j -= 1
+            index_list.append(( number_list[j], number_bytes[j] ))
+        with open(self.index_file, 'w') as OUT:
+            for index,start_bytes in index_list:
+                print(index, start_bytes, sep='\t', file=OUT)
+    
+        return self.index_file
+    
+    def tindex_read(self):
+        """
+        Read tindex generated by tindex_build
+        
+        Return
+        ------------------
+        index: Namespace with two items: 
+            - index_array
+            - start_bytes_array
+        """
+        
+        index_array, start_bytes_array = [], []
+        with open(self.index_file) as IN:
             for line in IN:
-                cur_item = int(line[:line.index(sep)])
-                if cur_item > item:
-                    break
-                elif cur_item == item:
-                    data.append(line)
-                    if len(data) >= max_lines:
+                index, byte = line.strip().split()
+                index, byte = self.first_column_func(index), int(byte)
+                index_array.append(index)
+                start_bytes_array.append(byte)
+        index_array = np.array(index_array)
+        start_bytes_array = np.array(start_bytes_array)
+        index = argparse.Namespace(**{ 'index_array': index_array, 'start_bytes_array': start_bytes_array })
+        return index
+    
+    def get(self, items, max_lines=1000000, disable_tqdm=True):
+        """
+        Retrieve from tindex database
+        
+        Parameters
+        ------------------
+        items: list. retrieve items, corresponding to the first column of index file
+        max_lines: When multiple lines have same item with query, max lines to preserve
+        disable_tqdm: Disable tqdm progress bar
+        
+        Return
+        ------------------
+        data: list of matched lines
+        """
+        import bisect
+        data = []
+        with open(self.big_text_file) as IN:
+            for item in tqdm(items, disable=disable_tqdm):
+                i = bisect.bisect_left(self.index.index_array, item)
+                if i>=len(self.index.index_array) or (self.index.index_array[i] > item and i > 0):
+                    i -= 1
+                _ = IN.seek(self.index.start_bytes_array[i])
+                for line in IN:
+                    cur_item = self.first_column_func(line[:line.find(self.sep)])
+                    if cur_item > item:
                         break
-    return data
-
-def read_index(index_file):
-    """
-    Read index file build from build_txt_index
-    """
-    index_array, start_bytes_array = [], []
-    with open(index_file) as IN:
-        for line in IN:
-            index, byte = [ int(x) for x in line.strip().split() ]
-            index_array.append(index)
-            start_bytes_array.append(byte)
-    index_array = np.array(index_array)
-    start_bytes_array = np.array(start_bytes_array)
-    index = argparse.Namespace(**{ 'index_array': index_array, 'start_bytes_array': start_bytes_array })
-    return index
+                    elif cur_item == item:
+                        data.append(line)
+                        if len(data) >= max_lines:
+                            break
+        return data
 
 ##############################################
 ### DDP
@@ -1611,5 +1772,4 @@ def print_torch_ddp_env(only_once=False):
         print("\x1b[0;33;49mTorch DDP Environment Variables\x1b[0m")
         for attr in attrs:
             print(f"{attr}: {os.environ.get(attr, None)}")
-
 
