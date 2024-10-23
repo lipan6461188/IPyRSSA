@@ -1565,18 +1565,20 @@ def print_tensor_info(tensor, print_source:bool = False, print_content:bool = Fa
     if print_content:
         print(tensor)
 
-def print_dict(dict_var: dict, color:bool = True, indent:int = 0, max_elem:int = None, max_layer:int = None, layer:int = 0):
+
+def print_object(obj_var, color:bool = True, indent:int = 0, max_elem:int = None, max_layer:int = None, layer:int = 0, parse_list: bool = False):
     """
-    Print dictionary content
+    Print object content
     
     Parameters
     --------------
-    dict_var: dict
+    obj_var: a python object
     color: bool. Print with color
     indent: indent
     max_elem: max element to print
     max_layer: max recursive layers
     layer: current layer
+    parse_list: Parse every element of list/tuple
     """
     import torch
     import numpy as np
@@ -1585,41 +1587,66 @@ def print_dict(dict_var: dict, color:bool = True, indent:int = 0, max_elem:int =
     if color:
         from IPyRSSA.Colors import f
         fk = lambda x: f(x, 'blue')
+        fv = lambda x: f(x, 'yellow')
     else:
         fk = lambda x: x
-    if not isinstance(dict_var, dict):
-        raise RuntimeError(f"Expect input dict but got {type(dict_var)}")
+        fv = lambda x: x
+    
+    keys, values = [], []
+    if isinstance(obj_var, dict):
+        for k,v in obj_var.items():
+            keys.append(k)
+            values.append(v)
+    elif parse_list and isinstance(obj_var, (list, tuple)):
+        for i,v in enumerate(obj_var):
+            keys.append(i)
+            values.append(v)
+    elif isinstance(obj_var, object):
+        for k in dir(obj_var):
+            if not (k.startswith('__') and k.endswith('__')):
+                keys.append(k)
+                values.append(getattr(obj_var, k))
+    else:
+        raise RuntimeError(f"Expect input object but got {type(obj_var)}")
+    
     if max_elem is None:
         max_elem = 1_000_0000_000
     max_elem = max_elem + 1 if max_elem % 2 == 1 else max_elem
     assert max_elem >= 1
-    for i,(k,v) in enumerate(dict_var.items()):
+    for i,(k,v) in enumerate(zip(keys, values)):
         indent_prefix = " " * indent
         prefix = indent_prefix + fk(f"{k}")
-        if i < max_elem // 2 or i >= len(dict_var) - max_elem // 2:
+        if i < max_elem // 2 or i >= len(keys) - max_elem // 2:
             if isinstance(v, (list, tuple)):
-                print(f"{prefix}: type={mtype(v)}, len(v)={len(v)}")
+                print(f"{prefix}: {fv('type')}={mtype(v)}, {fv('len(v)')}={len(v)}")
+                if parse_list:
+                    if max_layer is None or max_layer > layer:
+                        print_object(v, color=color, indent=indent+4, max_elem=max_elem, max_layer=max_layer, layer=layer+1, parse_list=parse_list)
+                    elif max_layer is not None:
+                        print(f"{indent_prefix}    ....")
             elif isinstance(v, dict):
-                print(f"{prefix}: type={mtype(v)}, len(v)={len(v)}")
+                print(f"{prefix}: {fv('type')}={mtype(v)}, {fv('len(v)')}={len(v)}")
                 if max_layer is None or max_layer > layer:
-                    print_dict(v, color=color, indent=indent+4, max_elem=max_elem, max_layer=max_layer, layer=layer+1)
+                    print_object(v, color=color, indent=indent+4, max_elem=max_elem, max_layer=max_layer, layer=layer+1, parse_list=parse_list)
                 elif max_layer is not None:
                     print(f"{indent_prefix}    ....")
             elif isinstance(v, (int, float)):
-                print(f"{prefix}: type={mtype(v)}, v={v}")
+                print(f"{prefix}: {fv('type')}={mtype(v)}, {fv('v')}={v}")
             elif isinstance(v, (str, bytes)):
-                print(f"{prefix}: type={mtype(v)}, v[:20]={v[:20]}")
+                print(f"{prefix}: {fv('type')}={mtype(v)}, {fv('v[:20]')}={v[:20]}")
             elif isinstance(v, np.ndarray):
-                print(f"{prefix}: type={mtype(v)}, v.dtype={v.dtype}, v.shape={v.shape}")
+                print(f"{prefix}: {fv('type')}={mtype(v)}, {fv('v.dtype')}={v.dtype}, {fv('v.shape')}={v.shape}")
             elif isinstance(v, torch.Tensor):
-                print(f"{prefix}: type={mtype(v)}, v.dtype={v.dtype}, v.shape={v.shape}, v.device={v.device}")
+                print(f"{prefix}: {fv('type')}={mtype(v)}, {fv('v.dtype')}={v.dtype}, {fv('v.shape')}={v.shape}, {fv('v.device')}={v.device}")
             elif isinstance(v, object):
-                print(f"{prefix}: type={mtype(v)}")
+                print(f"{prefix}: {fv('type')}={mtype(v)}")
             else:
-                print(f"{prefix}: type={mtype(v)}")
+                print(f"{prefix}: {fv('type')}={mtype(v)}")
         elif i == max_elem // 2:
             print(f"{indent_prefix}....")
             # break
+
+print_dict = print_object
 
 ##############################################
 ### TXT index
