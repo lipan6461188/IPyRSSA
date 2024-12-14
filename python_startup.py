@@ -7,7 +7,7 @@ def warn_f(text):
     return "\x1b["+code+"m"+text+"\x1b[0m"
  
 print(f"(run {__file__})")
-import os, sys, time, re, random, pickle, copy, gzip, io, yaml, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string, code, warnings, concurrent, gc, functools, types, traceback, base64, bz2, ctypes, tarfile, shlex
+import os, sys, time, re, random, pickle, copy, gzip, io, yaml, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string, code, warnings, concurrent, gc, functools, types, traceback, base64, bz2, ctypes, tarfile, shlex, socket
 from queue import PriorityQueue, Queue, deque, LifoQueue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import Pool

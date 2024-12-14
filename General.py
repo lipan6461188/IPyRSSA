@@ -1800,3 +1800,26 @@ def print_torch_ddp_env(only_once=False):
         for attr in attrs:
             print(f"{attr}: {os.environ.get(attr, None)}")
 
+def breakpoint0(locals_=None, globals_=None, func=None, rank0_func=None):
+    """
+    Breakpoint for rank 0
+    
+    Paremeters
+    --------------
+    locals_: get by locals()
+    globals_: get by globals()
+    func: function to call for all rank
+    rank0_func: function to call for rank 0
+    """
+    import torch
+    if torch.distributed.is_initialized():
+        if torch.distributed.get_rank() == 0:
+            if rank0_func is not None:
+                rank0_func()
+            print("import code; code.interact(local=locals_)")
+            breakpoint()
+        if func is not None:
+            func()
+        torch.distributed.barrier()    
+    else:
+        breakpoint()
