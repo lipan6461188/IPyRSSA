@@ -8,6 +8,7 @@ def warn_f(text):
  
 print(f"(run {__file__})")
 import os, sys, time, re, random, pickle, copy, gzip, io, yaml, logging, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib, string, code, warnings, concurrent, gc, functools, types, traceback, base64, bz2, ctypes, tarfile, shlex, socket
+from scipy.stats import spearmanr, pearsonr
 from queue import PriorityQueue, Queue, deque, LifoQueue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import Pool
@@ -22,8 +23,11 @@ from pathlib import Path
 from tqdm.auto import tqdm, trange
 from tabulate import tabulate
 from argparse import Namespace
+
+rootpath = lambda path: str(Path(realpath(path)).parent)
+
 # import getopt, random, os, math, re, sys, time, copy, datetime, importlib, tempfile, collections, pickle, io, gzip, json
-def import_module(model_name, from_import_name=None):
+def import_module(model_name, from_import_name=None, warn=False):
     try:
         module = importlib.import_module(model_name)
     except ModuleNotFoundError:
@@ -76,6 +80,9 @@ else:
     #print(Colors.f("commands not exists","yellow"))
     import subprocess
     getoutput = subprocess.getoutput
+
+if General is not None:
+    get_md5 = General.get_md5
 
 print("(import os, sys, time, re, random, pickle, copy, gzip, io, configparser, math, shutil, pathlib, tempfile, hashlib, argparse, json, inspect, urllib, collections, subprocess, requests, platform, multiprocessing, importlib)")
 print("(import Colors, Structure, Visual, General, Alignment, Covariation, GAP)")

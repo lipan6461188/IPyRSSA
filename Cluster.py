@@ -647,6 +647,70 @@ class Multi_GPU_CMD:
             shutil.rmtree(self.state_dir_name)
 
 ##################################
+#### Multi-Node for Shell Commands
+##################################
+
+def ssh_node_run_cmd(cmd, node_list, state_dir_name):
+    from tqdm.auto import trange, tqdm
+    node_dev = None
+    node_exists_file = None
+    time.sleep( round(random.random(), 3)*2 )
+    for node_idx in node_list:
+        node_exists_file = os.path.join(state_dir_name, str(node_idx))
+        if not os.path.exists(node_exists_file):
+            open(node_exists_file, 'a').close()
+            while not os.path.exists(node_exists_file):
+                time.sleep(0.5)
+            node_dev = node_idx
+            break
+    assert node_dev is not None, f"Expect one of node {node_list} exists in {state_dir_name}"
+    tqdm.write(f'\x1b[1;32;49m ssh {node_dev} "{cmd}" \x1b[0m')
+    _ = os.system(f'ssh {node_dev} "{cmd}"')
+    if os.path.exists(node_exists_file):
+        os.remove(node_exists_file)
+    else:
+        tqdm.write(f"Warning: {node_exists_file} not exists")
+
+class Multi_Node_CMD:
+    """
+    cmd_list = ['sleep 10'] * 10
+    runner = Multi_Node_CMD(['a3mega-a3meganodeset-7', 'a3mega-a3meganodeset-19'], cmd_list)
+    runner.run()
+    """
+    def __init__(self, node_list, cmd_list, state_dir_name=None):
+        from tqdm.auto import trange, tqdm
+        self.node_list = node_list
+        if state_dir_name is None:
+            self.state_dir_name = tempfile.mkdtemp(prefix='multinode_')
+            self.state_dir_type = 'generated'
+        else:
+            self.state_dir_name = state_dir_name
+            self.state_dir_type = 'specified'
+        tqdm.write(f"state_dir_name: {self.state_dir_name}")
+        self.cmd_list = cmd_list
+    
+    def run(self, disable_tqdm=True):
+        assert exists(self.state_dir_name), f"{self.state_dir_name} not exists"
+        assert isinstance(self.cmd_list, (list, tuple)), self.cmd_list
+        for cmd in self.cmd_list:
+            assert isinstance(cmd, str), cmd
+        assert isinstance(self.node_list, list), f"type(self.node_list)={type(self.node_list)}"
+        for node in self.node_list:
+            assert isinstance(node, str), f"node={node}"
+        num_proc = len(self.node_list)
+        with Pool(num_proc) as pool:
+            h_list = []
+            for cmd in self.cmd_list:
+                h = pool.apply_async(ssh_node_run_cmd, (cmd, self.node_list, self.state_dir_name))
+                h_list.append([cmd, h])
+            for cmd, h in tqdm(h_list, disable=disable_tqdm, dynamic_ncols=True):
+                # print(cmd)
+                _ = h.get()
+        
+        if self.state_dir_type == 'generated':
+            shutil.rmtree(self.state_dir_name)
+
+##################################
 #### Multi-GPU for Python Function
 ##################################
 

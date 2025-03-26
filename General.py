@@ -1,6 +1,6 @@
 #-*- coding:utf-8 -*-
 
-import sys, os, shutil, re, logging, subprocess, string, io, argparse, bisect, concurrent
+import sys, os, shutil, re, logging, subprocess, string, io, argparse, bisect, concurrent, gzip, zipfile, tarfile, json, pickle, time, datetime, random, math, copy, itertools, functools, collections, multiprocessing, threading, queue, signal, inspect, warnings, distutils.spawn
 from os.path import exists, join, getsize, isfile, isdir, abspath, basename
 from typing import Dict, Union, Optional, List, Tuple, Mapping
 import numpy as np
@@ -8,6 +8,16 @@ import pandas as pd
 from tqdm.auto import trange, tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Union, Optional, List, Tuple, Mapping
+
+def get_md5(aa_str):
+    """
+    Calculate MD5 values for protein sequence
+    """
+    import hashlib
+    assert isinstance(aa_str, str), aa_str
+
+    aa_str = aa_str.upper()
+    return hashlib.md5(aa_str.encode('utf-8')).hexdigest()
 
 def load_fasta(seqFn, rem_tVersion=False, load_annotation=False, full_line_as_id=False):
     """
@@ -1235,6 +1245,9 @@ def load_msa_txt(file_or_stream, load_id=False, load_annot=False, sort=False):
     
     if hasattr(file_or_stream, 'read'):
         lines = file_or_stream.read().strip().split('\n')
+    elif file_or_stream.endswith('.gz'):
+        with gzip.open(file_or_stream) as IN:
+            lines = IN.read().decode().strip().split('\n')
     else:
         with open(file_or_stream) as IN:
             lines = IN.read().strip().split('\n')
@@ -1296,6 +1309,8 @@ def load_a3m(file, rem_lowercase=True, load_annotation=False):
     
     name2id = {}
     for name, seq in name2seq.items():
+        if seq.endswith('\x00'):
+            seq = seq[:-1]
         align_seq = seq.translate(table)
         assert len(align_seq) == len(query_seq), f"Expect same length, but got {len(align_seq)} and {len(query_seq)}"
         name2id[name] = round(np.mean([ r1==r2 for r1,r2 in zip(align_seq, query_seq) ]), 3)
@@ -1306,6 +1321,52 @@ def load_a3m(file, rem_lowercase=True, load_annotation=False):
         return name2seq, name2id, name2annotation
     else:
         return name2seq, name2id
+
+def read_a3m_block(a3m_block_file, rem_lowercase=True, load_annotation=False):
+    """
+    a3m block file:
+        >query
+        SKGEELFTGVVPVLVELDGDVNGQKFSVSGEGEGDAT
+        >msa1
+        SKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDAT
+        >msa2
+        SKGEELFTGVVPILVELDGDVNGHKFSVRGEGEGDAT
+        \x00
+        >query
+        SKGAELFTGIVPILIELNGDVHGHKFSVKGEGE
+        >msa1
+        --GEKLFKGIVPIQIELNGDVNGHKFSVHGEGQ
+        >msa2
+        SKGEKLFTGVVPILVELDGDVNGHKFSVSGEGE
+        \x00
+    
+    Return
+    ------------
+    it: a iterative object
+        next(it) return same object as load_a3m
+    """
+    with open(a3m_block_file) as IN:
+        stop_read = False
+        while not stop_read:
+            header = IN.readline()
+            assert header[0] == '>', f"Expect header startswith >, but got {header}"
+            a3m_txt = header
+            while True:
+                loc = IN.tell()
+                line = IN.readline()
+                if line == "" or line == "\x00":
+                    stop_read = True
+                    break
+                elif line[0] == '\x00':
+                    # print(line)
+                    IN.seek(loc+1)
+                    break
+                else:
+                    a3m_txt += line
+            if len(a3m_txt) > 0:
+                yield load_a3m(io.StringIO(a3m_txt), rem_lowercase=rem_lowercase, load_annotation=load_annotation)
+            else:
+                raise StopIteration("Finish")
 
 def get_msa_perRes_Neff(msa, seq_id_cutoff=0.8, device='cpu', disable_tqdm=True):
     """
